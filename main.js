@@ -5,6 +5,7 @@ import {
   ipcMain,
   shell,
   Notification,
+  net,
 } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -186,6 +187,30 @@ class MainWindow {
         notification.on("click", () => this.win?.focus());
         notification.show();
       }
+    });
+
+    ipcMain.on(IPC_CHANNELS.UPDATE_FAVICON, (event, { source, faviconUrl }) => {
+      if (!faviconUrl) return;
+      const request = net.request(faviconUrl);
+
+      request.on("response", (response) => {
+        if (response.statusCode !== 200) return;
+
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          const buffer = Buffer.concat(chunks);
+          const dataUrl = `data:${response.headers["content-type"]};base64,${buffer.toString("base64")}`;
+
+          if (this.views.menu) {
+            this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+              source,
+              dataUrl,
+            });
+          }
+        });
+      });
+      request.end();
     });
   }
 }
