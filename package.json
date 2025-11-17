@@ -1,0 +1,69 @@
+{
+  "name": "gsuite-desktop-client",
+  "version": "1.0.0",
+  "description": "A native desktop client for Google Chat, Drive, Calendar and Gmail, built with Electron.",
+  "homepage": "https://github.com/apenlor/electron-gsuite-client#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apenlor/electron-gsuite-client.git"
+  },
+  "main": "main.js",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "lint": "npx eslint .",
+    "lint:fix": "npx eslint . --fix",
+    "format": "npx prettier --write .",
+    "prebuild": "npm run lint",
+    "build": "electron-builder --publish never",
+    "build:win": "npm run build -- --win",
+    "build:mac": "npm run build -- --mac",
+    "build:linux": "npm run build -- --linux"
+  },
+  "dependencies": {
+    "electron-context-menu": "^3.6.1",
+    "electron-store": "^9.0.0"
+  },
+  "devDependencies": {
+    "electron": "^39.2.1",
+    "electron-builder": "^26.0.12",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2"
+  },
+  "build": {
+    "appId": "com.apenlor.gsuite-client",
+    "productName": "GSuite Client",
+    "artifactName": "${productName}-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-web.js",
+      "menu.html",
+      "assets/",
+      "node_modules/"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "category": "Utility"
+    }
+  }
+}

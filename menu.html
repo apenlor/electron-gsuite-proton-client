@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Menu</title>
+    <style>
+      :root {
+        --background-color: #202124;
+        --accent-color-active: rgba(255, 255, 255, 0.1);
+        --accent-color-hover: rgba(255, 255, 255, 0.05);
+        --badge-color: #db4437;
+        --font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font-family: var(--font-family);
+      }
+
+      body {
+        background-color: var(--background-color);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 15px;
+        box-sizing: border-box;
+      }
+
+      .icon-container {
+        position: relative;
+        margin-bottom: 15px;
+      }
+
+      .nav-button {
+        width: 52px;
+        height: 52px;
+        border: none;
+        border-radius: 12px;
+        background-color: transparent;
+        cursor: pointer;
+        outline: none;
+        opacity: 0.7;
+        transition: all 0.2s ease-in-out;
+      }
+
+      .nav-button.active {
+        opacity: 1;
+        background-color: var(--accent-color-active);
+        transform: scale(1.05);
+      }
+
+      .nav-button:not(.active):hover {
+        opacity: 1;
+        background-color: var(--accent-color-hover);
+      }
+
+      .nav-button img {
+        width: 70%;
+        height: 70%;
+        pointer-events: none; /* Prevents image drag ghosting */
+      }
+
+      .badge {
+        position: absolute;
+        top: 10px;
+        right: 0;
+        background-color: var(--badge-color);
+        color: white;
+        border-radius: 50%;
+        min-width: 18px;
+        height: 18px;
+        font-size: 11px;
+        line-height: 18px; /* Vertically center text */
+        font-weight: bold;
+        text-align: center;
+        padding: 0 4px;
+        pointer-events: none;
+        transform: scale(0); /* Hidden by default */
+        transition: transform 0.2s ease-in-out;
+      }
+
+      .badge.visible {
+        transform: scale(1);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="icon-container" data-service-id="chat">
+      <button class="nav-button" title="Google Chat">
+        <img src="assets/chat.png" alt="Chat" data-icon-id="chat" />
+      </button>
+      <span class="badge" data-badge-id="chat"></span>
+    </div>
+
+    <div class="icon-container" data-service-id="gmail">
+      <button class="nav-button" title="Gmail">
+        <img src="assets/gmail.png" alt="Gmail" data-icon-id="gmail" />
+      </button>
+      <span class="badge" data-badge-id="gmail"></span>
+    </div>
+
+    <script type="module">
+      /**
+       * @module MenuController
+       * Manages the UI and state of the side navigation menu.
+       * It listens to events from the main process and user interactions.
+       */
+      class MenuController {
+        constructor() {
+          this.container = document.body;
+          this.activeServiceId = null;
+          this._bindEvents();
+          this._setupIpcListeners();
+        }
+
+        _bindEvents() {
+          this.container.addEventListener("click", (event) => {
+            const button = event.target.closest(".nav-button");
+            if (!button) return;
+
+            const serviceId = button.parentElement.dataset.serviceId;
+            if (serviceId) {
+              window.electronAPI.send("switch-tab", serviceId);
+              this.setActiveButton(serviceId);
+            }
+          });
+        }
+
+        _setupIpcListeners() {
+          window.electronAPI.on("set-active-tab", (serviceId) =>
+            this.setActiveButton(serviceId),
+          );
+
+          window.electronAPI.on("update-menu-badges", (counts) =>
+            this.updateBadges(counts),
+          );
+
+          window.electronAPI.on("update-menu-icon", ({ source, dataUrl }) =>
+            this.updateIcon(source, dataUrl),
+          );
+        }
+
+        setActiveButton(serviceId) {
+          if (this.activeServiceId === serviceId) return;
+
+          // Deactivate previous button if it exists
+          if (this.activeServiceId) {
+            this.container
+              .querySelector(
+                `[data-service-id="${this.activeServiceId}"] .nav-button`,
+              )
+              ?.classList.remove("active");
+          }
+
+          // Activate new button
+          this.container
+            .querySelector(`[data-service-id="${serviceId}"] .nav-button`)
+            ?.classList.add("active");
+          this.activeServiceId = serviceId;
+        }
+
+        updateBadges(counts) {
+          for (const [serviceId, count] of Object.entries(counts)) {
+            const badge = this.container.querySelector(
+              `[data-badge-id="${serviceId}"]`,
+            );
+            if (!badge) continue;
+
+            const hasUnread = count > 0;
+            badge.classList.toggle("visible", hasUnread);
+
+            if (hasUnread) {
+              badge.textContent = count > 99 ? "99+" : count;
+            }
+          }
+        }
+
+        updateIcon(serviceId, dataUrl) {
+          const icon = this.container.querySelector(
+            `[data-icon-id="${serviceId}"]`,
+          );
+          if (icon) {
+            icon.src = dataUrl;
+          }
+        }
+      }
+
+      // Initialize the controller once the DOM is ready.
+      new MenuController();
+    </script>
+  </body>
+</html>
