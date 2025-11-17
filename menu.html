@@ -36,7 +36,7 @@
       }
 
       .nav-button {
-        width: 52px;
+        width: 58px;
         height: 52px;
         border: none;
         border-radius: 12px;
@@ -59,27 +59,27 @@
       }
 
       .nav-button img {
-        width: 70%;
-        height: 70%;
-        pointer-events: none; /* Prevents image drag ghosting */
+        width: 65%; /* Slightly smaller icon within the larger button */
+        height: 65%;
+        pointer-events: none;
       }
 
       .badge {
         position: absolute;
-        top: 10px;
-        right: 0;
+        top: 6px; /* Adjusted for new button size */
+        right: 6px; /* Adjusted for new button size */
         background-color: var(--badge-color);
         color: white;
         border-radius: 50%;
         min-width: 18px;
         height: 18px;
         font-size: 11px;
-        line-height: 18px; /* Vertically center text */
+        line-height: 18px;
         font-weight: bold;
         text-align: center;
         padding: 0 4px;
         pointer-events: none;
-        transform: scale(0); /* Hidden by default */
+        transform: scale(0);
         transition: transform 0.2s ease-in-out;
       }
 
@@ -89,11 +89,11 @@
     </style>
   </head>
   <body>
-    <div class="icon-container" data-service-id="chat">
-      <button class="nav-button" title="Google Chat">
-        <img src="assets/chat.png" alt="Chat" data-icon-id="chat" />
+    <div class="icon-container" data-service-id="drive">
+      <button class="nav-button" title="Google Drive">
+        <img src="assets/drive.png" alt="Drive" data-icon-id="drive" />
       </button>
-      <span class="badge" data-badge-id="chat"></span>
+      <span class="badge" data-badge-id="drive"></span>
     </div>
 
     <div class="icon-container" data-service-id="gmail">
@@ -101,6 +101,13 @@
         <img src="assets/gmail.png" alt="Gmail" data-icon-id="gmail" />
       </button>
       <span class="badge" data-badge-id="gmail"></span>
+    </div>
+
+    <div class="icon-container" data-service-id="chat">
+      <button class="nav-button" title="Google Chat">
+        <img src="assets/chat.png" alt="Chat" data-icon-id="chat" />
+      </button>
+      <span class="badge" data-badge-id="chat"></span>
     </div>
 
     <script type="module">

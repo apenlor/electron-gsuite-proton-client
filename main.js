@@ -42,6 +42,12 @@ const VIEW_CONFIG = {
     preload: "preload-web.js",
     isContent: true,
   },
+  DRIVE: {
+    id: "drive",
+    url: "https://drive.google.com/drive/u/0/my-drive",
+    preload: "preload-web.js",
+    isContent: true,
+  },
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -140,11 +146,17 @@ class MainWindow {
   }
 
   _loadInitialContent() {
+    // Load the menu file
     this.views[VIEW_CONFIG.MENU.id].webContents.loadFile(
       path.join(__dirname, "menu.html"),
     );
-    this.views[VIEW_CONFIG.CHAT.id].webContents.loadURL(VIEW_CONFIG.CHAT.url);
-    this.views[VIEW_CONFIG.GMAIL.id].webContents.loadURL(VIEW_CONFIG.GMAIL.url);
+
+    // Load URL for ALL content views defined in the config
+    Object.values(VIEW_CONFIG)
+      .filter((c) => c.isContent)
+      .forEach((config) => {
+        this.views[config.id].webContents.loadURL(config.url);
+      });
 
     const lastTabId = this.store.get("lastTab", VIEW_CONFIG.CHAT.id);
     this.win.setTopBrowserView(this.views[lastTabId]);
