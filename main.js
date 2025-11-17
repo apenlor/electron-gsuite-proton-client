@@ -48,6 +48,12 @@ const VIEW_CONFIG = {
     preload: "preload-web.js",
     isContent: true,
   },
+  CALENDAR: {
+    id: "calendar",
+    url: "https://calendar.google.com/calendar/u/0/r",
+    preload: "preload-web.js",
+    isContent: true,
+  },
 };
 
 const __filename = fileURLToPath(import.meta.url);

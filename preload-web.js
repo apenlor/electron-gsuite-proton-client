@@ -76,17 +76,19 @@ function observeGmailBadge() {
   }
 }
 
+function getSourceId() {
+  const href = window.location.href;
+  if (href.includes("mail.google.com/chat")) return "chat";
+  if (href.includes("drive.google.com")) return "drive";
+  if (href.includes("calendar.google.com")) return "calendar";
+
+  // Default to gmail if no other match
+  return "gmail";
+}
+
 // --- Main Execution ---
 document.addEventListener("DOMContentLoaded", () => {
-  const href = window.location.href;
-  let sourceId = "gmail"; // Default to Gmail
-
-  if (href.includes("mail.google.com/chat")) {
-    sourceId = "chat";
-  } else if (href.includes("drive.google.com")) {
-    sourceId = "drive";
-  }
-
+  let sourceId = getSourceId();
   // Favicon observation is universal for all services.
   observeFaviconChanges(sourceId);
 

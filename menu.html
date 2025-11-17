@@ -86,28 +86,42 @@
       .badge.visible {
         transform: scale(1);
       }
+
+      .spacer {
+        flex-grow: 1;
+      }
     </style>
   </head>
   <body>
-    <div class="icon-container" data-service-id="drive">
-      <button class="nav-button" title="Google Drive">
-        <img src="assets/drive.png" alt="Drive" data-icon-id="drive" />
+    <!-- Top-aligned Icons -->
+    <div class="icon-container" data-service-id="calendar">
+      <button class="nav-button" title="Google Calendar">
+        <img src="assets/calendar.png" alt="Calendar" data-icon-id="calendar" />
       </button>
-      <span class="badge" data-badge-id="drive"></span>
+      <span class="badge" data-badge-id="calendar"></span>
     </div>
-
     <div class="icon-container" data-service-id="gmail">
       <button class="nav-button" title="Gmail">
         <img src="assets/gmail.png" alt="Gmail" data-icon-id="gmail" />
       </button>
       <span class="badge" data-badge-id="gmail"></span>
     </div>
-
     <div class="icon-container" data-service-id="chat">
       <button class="nav-button" title="Google Chat">
         <img src="assets/chat.png" alt="Chat" data-icon-id="chat" />
       </button>
       <span class="badge" data-badge-id="chat"></span>
+    </div>
+
+    <!-- This element will expand to fill all available space -->
+    <div class="spacer"></div>
+
+    <!-- Bottom-aligned Icons -->
+    <div class="icon-container" data-service-id="drive">
+      <button class="nav-button" title="Google Drive">
+        <img src="assets/drive.png" alt="Drive" data-icon-id="drive" />
+      </button>
+      <span class="badge" data-badge-id="drive"></span>
     </div>
 
     <script type="module">
