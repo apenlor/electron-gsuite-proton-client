@@ -199,7 +199,7 @@ class MainWindow {
         this.views[config.id].webContents.loadURL(config.url);
       });
 
-    const lastTabId = this.store.get("lastTab", VIEW_CONFIG.CHAT.id);
+    let lastTabId = this.store.get("lastTab", VIEW_CONFIG.CHAT.id);
     if (!VALID_VIEW_IDS.has(lastTabId)) {
         lastTabId = VIEW_CONFIG.CHAT.id;
     }
