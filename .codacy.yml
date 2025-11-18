@@ -11,8 +11,3 @@ tools:
   - name: prettier
   # Markdownlint for checking the README.md and other documentation.
   - name: markdownlint
-
-patterns:
-  - patternId: javascript.lang.security.path-join-resolve-traversal.path-join-resolve-traversal
-    ignore:
-      - main.js

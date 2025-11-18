@@ -9,7 +9,6 @@ import {
   Menu,
 } from "electron";
 import path from "path";
-import fs from "fs";
 import { createMenu } from "./menu.js";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
@@ -70,9 +69,6 @@ const VALID_PRELOADS = new Set(
 // ES Module-safe way to get __dirname and import JSON.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const packageJson = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "package.json"), "utf8"),
-);
 
 /**
  * Manages the main application window, its views, and all related lifecycle events.
@@ -149,8 +145,14 @@ class MainWindow {
       }
 
       const isContent = config.isContent;
+      const preloadPath = path.normalize(path.join(__dirname, config.preload));
+      if (!preloadPath.startsWith(__dirname)) {
+        throw new Error(
+          `[Security] Aborting due to path traversal attempt in preload config: ${config.preload}`,
+        );
+      }
       const webPreferences = {
-        preload: path.join(__dirname, config.preload),
+        preload: preloadPath,
         contextIsolation: true,
         sandbox: isContent,
         nodeIntegration: !isContent,
@@ -339,10 +341,6 @@ class MainWindow {
 let mainWindow;
 
 app.whenReady().then(() => {
-  if (process.platform === "darwin") {
-    app.setName(packageJson.build.productName);
-  }
-
   mainWindow = new MainWindow();
   mainWindow.create();
 });
