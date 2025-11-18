@@ -6,8 +6,10 @@ import {
   shell,
   Notification,
   net,
+  Menu,
 } from "electron";
 import path from "path";
+import { createMenu } from "./menu.js";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
 import contextMenu from "electron-context-menu";
@@ -64,6 +66,7 @@ class MainWindow {
     this.store = new Store();
     this.win = null;
     this.views = {};
+    this.activeViewId = null;
     this.unreadCounts = {
       [VIEW_CONFIG.CHAT.id]: 0,
       [VIEW_CONFIG.GMAIL.id]: 0,
@@ -87,11 +90,13 @@ class MainWindow {
       ...bounds,
       minWidth: 1000,
       minHeight: 700,
-      autoHideMenuBar: true,
       title: "Google Suite",
       backgroundColor: "#202124",
       icon: path.join(__dirname, "assets/icon.png"),
     });
+
+    const appMenu = createMenu(this);
+    Menu.setApplicationMenu(appMenu);
 
     this.win.on("resized", () =>
       this.store.set("windowBounds", this.win.getBounds()),
@@ -200,6 +205,7 @@ class MainWindow {
       });
 
     const lastTabId = this.store.get("lastTab", VIEW_CONFIG.CHAT.id);
+    this.activeViewId = lastTabId;
     this.win.setTopBrowserView(this.views[lastTabId]);
 
     this.views[VIEW_CONFIG.MENU.id].webContents.on("did-finish-load", () => {
@@ -213,6 +219,7 @@ class MainWindow {
   _setupIpcHandlers() {
     ipcMain.on(IPC_CHANNELS.SWITCH_TAB, (event, tabId) => {
       this.store.set("lastTab", tabId);
+      this.activeViewId = tabId;
       if (this.win && this.views[tabId]) {
         this.win.setTopBrowserView(this.views[tabId]);
       }
