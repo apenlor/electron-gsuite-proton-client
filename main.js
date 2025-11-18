@@ -110,47 +110,38 @@ class MainWindow {
   }
 
   _setupSecurity() {
+    // The only security setup needed here is the permission handler.
     const session = this.win.webContents.session;
-
-    //Handle permission requests
     session.setPermissionRequestHandler((webContents, permission, callback) => {
       const allowedPermissions = new Set(["media"]);
-
       if (allowedPermissions.has(permission)) {
-        callback(true); // Allow the request, which will trigger a native user prompt.
+        callback(true);
       } else {
-        console.warn(
-          `[Security] Denied unexpected permission request: ${permission}`,
-        );
-        callback(false); // Deny all others.
+        callback(false);
       }
-    });
-
-    //Implement content security policy
-    session.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          "Content-Security-Policy": [
-            "script-src 'self' https://*.google.com https://*.gstatic.com 'unsafe-inline' 'unsafe-eval'",
-            "connect-src 'self' https://*.google.com https://*.googleusercontent.com https://*.gstatic.com",
-            "img-src 'self' data: https://*.google.com https://*.gstatic.com https://*.googleusercontent.com",
-            "object-src 'none'",
-            "base-uri 'self'",
-          ],
-        },
-      });
     });
   }
 
   _createViews() {
     Object.values(VIEW_CONFIG).forEach((config) => {
-      const view = new BrowserView({
-        webPreferences: { preload: path.join(__dirname, config.preload) },
-      });
+      const webPreferences = {
+        preload: path.join(__dirname, config.preload),
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+      };
+
+      const view = new BrowserView({ webPreferences });
 
       if (config.isContent) {
-        contextMenu({ window: view, showInspectElement: true });
+        contextMenu({
+          window: view,
+          showInspectElement: true,
+          showSaveImageAs: false,
+          showCopyImageAddress: false,
+        });
         view.webContents.setWindowOpenHandler(({ url }) => {
           shell.openExternal(url);
           return { action: "deny" };
