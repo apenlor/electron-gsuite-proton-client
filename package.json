@@ -48,10 +48,11 @@
     },
     "files": [
       "main.js",
+      "menu.js",
       "preload.js",
       "preload-web.js",
       "menu.html",
-      "assets/",
+      "assets/**/*",
       "node_modules/"
     ],
     "publish": {
@@ -61,18 +62,18 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icons/win/icon.ico"
     },
     "mac": {
       "target": "dmg",
-      "icon": "assets/icon.icns",
+      "icon": "assets/icons/mac/icon.icns",
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "gatekeeperAssess": false
     },
     "linux": {
       "target": "AppImage",
-      "icon": "assets/icon.png",
+      "icon": "assets/icons/png",
       "category": "Utility"
     }
   },
