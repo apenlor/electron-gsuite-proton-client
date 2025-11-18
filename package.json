@@ -22,7 +22,8 @@
     "build": "electron-builder --publish never",
     "build:win": "npm run build -- --win",
     "build:mac": "npm run build -- --mac",
-    "build:linux": "npm run build -- --linux"
+    "build:linux": "npm run build -- --linux",
+    "prepare": "husky"
   },
   "dependencies": {
     "electron-context-menu": "^3.6.1",
@@ -34,6 +35,8 @@
     "electron-builder": "^26.0.12",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.6",
     "prettier": "^3.6.2"
   },
   "build": {
@@ -72,5 +75,9 @@
       "icon": "assets/icon.png",
       "category": "Utility"
     }
+  },
+  "lint-staged": {
+    "*.{js,html,css,md,yml}": "prettier --write",
+    "*.js": "eslint --fix"
   }
 }
