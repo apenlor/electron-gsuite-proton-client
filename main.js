@@ -72,6 +72,7 @@ class MainWindow {
 
   create() {
     this._createWindow();
+    this._setupSecurity();
     this._createViews();
     this._attachViews();
     this._layoutViews();
@@ -99,6 +100,40 @@ class MainWindow {
       this.store.set("windowBounds", this.win.getBounds()),
     );
     this.win.on("resize", () => this._layoutViews());
+  }
+
+  _setupSecurity() {
+    const session = this.win.webContents.session;
+
+    //Handle permission requests
+    session.setPermissionRequestHandler((webContents, permission, callback) => {
+      const allowedPermissions = new Set(["media"]);
+
+      if (allowedPermissions.has(permission)) {
+        callback(true); // Allow the request, which will trigger a native user prompt.
+      } else {
+        console.warn(
+          `[Security] Denied unexpected permission request: ${permission}`,
+        );
+        callback(false); // Deny all others.
+      }
+    });
+
+    //Implement content security policy
+    session.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [
+            "script-src 'self' https://*.google.com https://*.gstatic.com 'unsafe-inline' 'unsafe-eval'",
+            "connect-src 'self' https://*.google.com https://*.googleusercontent.com https://*.gstatic.com",
+            "img-src 'self' data: https://*.google.com https://*.gstatic.com https://*.googleusercontent.com",
+            "object-src 'none'",
+            "base-uri 'self'",
+          ],
+        },
+      });
+    });
   }
 
   _createViews() {
