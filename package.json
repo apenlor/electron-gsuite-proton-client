@@ -25,7 +25,8 @@
   },
   "dependencies": {
     "electron-context-menu": "^3.6.1",
-    "electron-store": "^9.0.0"
+    "electron-store": "^9.0.0",
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "electron": "^39.2.1",
@@ -49,6 +50,11 @@
       "assets/",
       "node_modules/"
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "apenlor",
+      "repo": "electron-gsuite-client"
+    },
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico"

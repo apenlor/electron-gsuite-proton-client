@@ -12,6 +12,8 @@ import path from "path";
 import { createMenu } from "./menu.js";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
+import pkg from "electron-updater";
+const { autoUpdater } = pkg;
 import contextMenu from "electron-context-menu";
 
 // --- Constants & Configuration ---
@@ -81,8 +83,8 @@ class MainWindow {
     this._layoutViews();
     this._setupIpcHandlers();
     this._loadInitialContent();
+    this._setupAutoUpdater();
   }
-
   _createWindow() {
     const bounds = this.store.get("windowBounds", { width: 1200, height: 800 });
 
@@ -214,6 +216,11 @@ class MainWindow {
         lastTabId,
       );
     });
+  }
+
+  _setupAutoUpdater() {
+    autoUpdater.logger = console;
+    autoUpdater.checkForUpdatesAndNotify();
   }
 
   _setupIpcHandlers() {
