@@ -20,3 +20,12 @@ exclude_paths:
   - "build/"
   - "node_modules/"
   - "package-lock.json"
+
+patterns:
+  # The Semgrep pattern for path traversal is identified as a false positive
+  # in main.js because the input is from a trusted, hardcoded config.
+  - patternId: javascript.lang.security.path-join-resolve-traversal.path-join-resolve-traversal
+    # We are ignoring it ONLY for the main.js file.
+    # If it occurs anywhere else, the warning will still trigger.
+    ignore:
+      - main.js

@@ -60,6 +60,8 @@ const VIEW_CONFIG = {
   },
 };
 
+const VALID_VIEW_IDS = new Set(Object.values(VIEW_CONFIG).filter(c => c.isContent).map(c => c.id));
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -198,6 +200,9 @@ class MainWindow {
       });
 
     const lastTabId = this.store.get("lastTab", VIEW_CONFIG.CHAT.id);
+    if (!VALID_VIEW_IDS.has(lastTabId)) {
+        lastTabId = VIEW_CONFIG.CHAT.id;
+    }
     this.activeViewId = lastTabId;
     this.win.setTopBrowserView(this.views[lastTabId]);
 
@@ -216,6 +221,10 @@ class MainWindow {
 
   _setupIpcHandlers() {
     ipcMain.on(IPC_CHANNELS.SWITCH_TAB, (event, tabId) => {
+      if (!VALID_VIEW_IDS.has(tabId)) {
+          console.warn(`[Security] Ignored invalid tabId from IPC: ${tabId}`);
+          return;
+      }
       this.store.set("lastTab", tabId);
       this.activeViewId = tabId;
       if (this.win && this.views[tabId]) {
@@ -224,7 +233,11 @@ class MainWindow {
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_BADGE, (event, { count, source }) => {
-      this.unreadCounts[source] = count;
+      if (!VALID_VIEW_IDS.has(source)) {
+          console.warn(`[Security] Ignored invalid source from IPC: ${source}`);
+          return;
+      }
+      this.unreadCounts[source] = count ?? 0;
       const total = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
       app.setBadgeCount(total);
       if (this.views.menu) {
