@@ -137,41 +137,34 @@ class MainWindow {
 
   _createViews() {
     Object.values(VIEW_CONFIG).forEach((config) => {
-      if (!VALID_PRELOADS.has(config.preload)) {
+      if (VALID_PRELOADS.has(config.preload)) {
+        const isContent = config.isContent;
+        const webPreferences = {
+          preload: path.join(__dirname, config.preload),
+          contextIsolation: true,
+          sandbox: isContent,
+          nodeIntegration: !isContent,
+        };
+        const view = new BrowserView({ webPreferences });
+
+        if (isContent) {
+          contextMenu({
+            window: view,
+            showInspectElement: true,
+            showSaveImageAs: false,
+            showCopyImageAddress: false,
+          });
+          view.webContents.setWindowOpenHandler(({ url }) => {
+            shell.openExternal(url);
+            return { action: "deny" };
+          });
+        }
+        this.views[config.id] = view;
+      } else {
         console.error(
           `[Security] Invalid preload script specified in config: ${config.preload}`,
         );
-        return;
       }
-
-      const isContent = config.isContent;
-      const preloadPath = path.normalize(path.join(__dirname, config.preload));
-      if (!preloadPath.startsWith(__dirname)) {
-        throw new Error(
-          `[Security] Aborting due to path traversal attempt in preload config: ${config.preload}`,
-        );
-      }
-      const webPreferences = {
-        preload: preloadPath,
-        contextIsolation: true,
-        sandbox: isContent,
-        nodeIntegration: !isContent,
-      };
-      const view = new BrowserView({ webPreferences });
-
-      if (isContent) {
-        contextMenu({
-          window: view,
-          showInspectElement: true,
-          showSaveImageAs: false,
-          showCopyImageAddress: false,
-        });
-        view.webContents.setWindowOpenHandler(({ url }) => {
-          shell.openExternal(url);
-          return { action: "deny" };
-        });
-      }
-      this.views[config.id] = view;
     });
   }
 
