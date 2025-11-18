@@ -1,0 +1,22 @@
+---
+version: 1
+
+# Explicitly enable the static analysis tools we want to use.
+tools:
+  # ESLint is our primary JavaScript linter.
+  - name: eslint
+    # Codacy uses its own config, but we can align it.
+    # Often it detects your .eslintrc.js or eslint.config.js automatically.
+  # Prettier is used for code style consistency.
+  - name: prettier
+  # Markdownlint for checking the README.md and other documentation.
+  - name: markdownlint
+
+# Define which files and directories Codacy should NOT analyze.
+# This prevents noise and speeds up analysis.
+exclude_paths:
+  - "release/"
+  - "dist/"
+  - "build/"
+  - "node_modules/"
+  - "package-lock.json"
