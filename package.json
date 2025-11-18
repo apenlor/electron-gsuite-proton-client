@@ -58,7 +58,8 @@
     "publish": {
       "provider": "github",
       "owner": "apenlor",
-      "repo": "electron-gsuite-client"
+      "repo": "electron-gsuite-client",
+      "releaseType": "release"
     },
     "win": {
       "target": "nsis",
