@@ -17,7 +17,7 @@ import pkg from "electron-updater";
 const { autoUpdater } = pkg;
 import contextMenu from "electron-context-menu";
 
-// --- Constants & Configuration ---
+// --- Configuration ---
 
 const IPC_CHANNELS = {
   SWITCH_TAB: "switch-tab",
@@ -57,7 +57,6 @@ const VIEW_CONFIG = {
   },
 };
 
-// Security whitelists derived from the trusted configuration.
 const VALID_VIEW_IDS = new Set(
   Object.values(VIEW_CONFIG)
     .filter((c) => c.isContent)
@@ -67,16 +66,12 @@ const VALID_PRELOADS = new Set(
   Object.values(VIEW_CONFIG).map((c) => c.preload),
 );
 
-// ES Module-safe way to get __dirname and import JSON.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(__dirname, "package.json"), "utf8"),
 );
 
-/**
- * Manages the main application window, its views, and all related lifecycle events.
- */
 class MainWindow {
   constructor() {
     this.store = new Store();
@@ -133,19 +128,22 @@ class MainWindow {
 
   _setupSecurity() {
     const session = this.win.webContents.session;
+
+    // 1. Permission Handler
     session.setPermissionRequestHandler((webContents, permission, callback) => {
       const allowedPermissions = new Set(["media", "notifications"]);
-      if (allowedPermissions.has(permission)) {
-        callback(true);
-      } else {
-        callback(false);
-      }
+      callback(allowedPermissions.has(permission));
     });
 
+    // 2. Header Stripping (Security Trade-off for Functionality)
     session.webRequest.onHeadersReceived((details, callback) => {
       const responseHeaders = { ...details.responseHeaders };
+      // Remove X-Frame-Options to allow embedding
       delete responseHeaders["x-frame-options"];
       delete responseHeaders["X-Frame-Options"];
+      // Remove CSP to allow script injection (Required for Notifications)
+      delete responseHeaders["content-security-policy"];
+      delete responseHeaders["Content-Security-Policy"];
       callback({ responseHeaders });
     });
   }
@@ -153,9 +151,7 @@ class MainWindow {
   _createViews() {
     Object.values(VIEW_CONFIG).forEach((config) => {
       if (!VALID_PRELOADS.has(config.preload)) {
-        throw new Error(
-          `[Security] Aborting: Invalid preload script in config: ${config.preload}`,
-        );
+        throw new Error(`[Security] Invalid preload: ${config.preload}`);
       }
 
       const isContent = config.isContent;
@@ -164,6 +160,7 @@ class MainWindow {
         contextIsolation: true,
         sandbox: isContent,
         nodeIntegration: !isContent,
+        backgroundThrottling: false, // Prevent background tabs from freezing
       };
 
       const view = new BrowserView({ webPreferences });
@@ -194,6 +191,7 @@ class MainWindow {
     const bounds = this.win.getBounds();
     const menuConfig = VIEW_CONFIG.MENU;
 
+    // Menu View
     this.views[menuConfig.id].setBounds({
       x: 0,
       y: 0,
@@ -202,15 +200,18 @@ class MainWindow {
     });
     this.views[menuConfig.id].setAutoResize({ height: true });
 
+    // Content Views
+    const contentBounds = {
+      x: menuConfig.width,
+      y: 0,
+      width: bounds.width - menuConfig.width,
+      height: bounds.height,
+    };
+
     Object.values(VIEW_CONFIG)
       .filter((c) => c.isContent)
       .forEach((config) => {
-        this.views[config.id].setBounds({
-          x: menuConfig.width,
-          y: 0,
-          width: bounds.width - menuConfig.width,
-          height: bounds.height,
-        });
+        this.views[config.id].setBounds(contentBounds);
         this.views[config.id].setAutoResize({ width: true, height: true });
       });
   }
@@ -226,9 +227,7 @@ class MainWindow {
       });
 
     let lastTabId = this.store.get("lastTab", VIEW_CONFIG.CHAT.id);
-    if (!VALID_VIEW_IDS.has(lastTabId)) {
-      lastTabId = VIEW_CONFIG.CHAT.id;
-    }
+    if (!VALID_VIEW_IDS.has(lastTabId)) lastTabId = VIEW_CONFIG.CHAT.id;
 
     const targetView = this._getSafeView(lastTabId);
     if (targetView) {
@@ -249,10 +248,6 @@ class MainWindow {
     autoUpdater.checkForUpdatesAndNotify();
   }
 
-  /**
-   * Helper: Securely retrieves a view based on its ID using static dispatch.
-   * Prevents object injection attacks by avoiding dynamic property access.
-   */
   _getSafeView(id) {
     switch (id) {
       case "chat":
@@ -268,25 +263,9 @@ class MainWindow {
     }
   }
 
-  /**
-   * Helper: Securely updates the unread count state.
-   */
   _updateUnreadCount(source, count) {
     const newCount = count ?? 0;
-    switch (source) {
-      case "chat":
-        this.unreadCounts.chat = newCount;
-        break;
-      case "gmail":
-        this.unreadCounts.gmail = newCount;
-        break;
-      case "drive":
-        this.unreadCounts.drive = newCount;
-        break;
-      case "calendar":
-        this.unreadCounts.calendar = newCount;
-        break;
-    }
+    this.unreadCounts[source] = newCount; // Safe due to Valid ID check upstream
   }
 
   _setupIpcHandlers() {
@@ -295,20 +274,15 @@ class MainWindow {
 
       const targetView = this._getSafeView(tabId);
 
-      // 1. Blur the currently active view so it knows it's in the background.
-      // This allows apps like Calendar to enable desktop notifications.
       if (this.activeViewId) {
         const currentView = this._getSafeView(this.activeViewId);
         currentView?.webContents.executeJavaScript("window.blur()", true);
       }
 
-      // 2. Switch the view
       if (targetView) {
         this.store.set("lastTab", tabId);
         this.activeViewId = tabId;
         this.win.setTopBrowserView(targetView);
-
-        // 3. Focus the new view
         targetView.webContents.focus();
       }
     });
@@ -330,23 +304,20 @@ class MainWindow {
 
     ipcMain.on(IPC_CHANNELS.SHOW_NOTIFICATION, (event, { title, body }) => {
       if (Notification.isSupported()) {
-        const safeTitle = title || "GSuite Client";
-        const safeBody = body || "New notification";
-
         const notification = new Notification({
-          title: safeTitle,
-          body: safeBody,
+          title: title || "GSuite Client",
+          body: body || "New notification",
           icon: path.join(__dirname, "assets/icon.png"),
           sound: "default",
         });
 
         this.activeNotifications.add(notification);
-        const cleanup = () => this.activeNotifications.delete(notification);
-
-        notification.on("close", cleanup);
+        notification.on("close", () =>
+          this.activeNotifications.delete(notification),
+        );
         notification.on("click", () => {
           this.win?.focus();
-          cleanup();
+          this.activeNotifications.delete(notification);
         });
 
         notification.show();
@@ -355,35 +326,50 @@ class MainWindow {
 
     ipcMain.on(IPC_CHANNELS.UPDATE_FAVICON, (event, { source, faviconUrl }) => {
       if (!faviconUrl) return;
-      const request = net.request(faviconUrl);
-      request.on("response", (response) => {
-        if (response.statusCode !== 200) return;
-        const chunks = [];
-        response.on("data", (chunk) => chunks.push(chunk));
-        response.on("end", () => {
-          const buffer = Buffer.concat(chunks);
-          const dataUrl = `data:${response.headers["content-type"]};base64,${buffer.toString("base64")}`;
-          if (this.views.menu) {
-            this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
-              source,
-              dataUrl,
-            });
-          }
+
+      // CASE 1: Already Data URL - Proxy directly
+      if (faviconUrl.startsWith("data:")) {
+        this.views.menu?.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+          source,
+          dataUrl: faviconUrl,
         });
-      });
-      request.end();
+        return;
+      }
+
+      // CASE 2: Remote URL - Fetch via Net
+      try {
+        const request = net.request(faviconUrl);
+        request.on("response", (response) => {
+          if (response.statusCode !== 200) return;
+          const chunks = [];
+          response.on("data", (chunk) => chunks.push(chunk));
+          response.on("end", () => {
+            const buffer = Buffer.concat(chunks);
+            const dataUrl = `data:${response.headers["content-type"]};base64,${buffer.toString("base64")}`;
+            if (this.views.menu) {
+              this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+                source,
+                dataUrl,
+              });
+            }
+          });
+        });
+        request.on("error", (e) =>
+          console.error(`Favicon error ${source}:`, e.message),
+        );
+        request.end();
+      } catch (e) {
+        console.error(`Favicon request failed ${source}:`, e.message);
+      }
     });
   }
 }
 
-// --- Application Lifecycle ---
+// --- Lifecycle ---
 let mainWindow;
 
 app.whenReady().then(() => {
-  if (process.platform === "darwin") {
-    app.setName(packageJson.build.productName);
-  }
-
+  if (process.platform === "darwin") app.setName(packageJson.build.productName);
   mainWindow = new MainWindow();
   mainWindow.create();
 });

@@ -1,4 +1,4 @@
-const { ipcRenderer } = require("electron");
+const { ipcRenderer, contextBridge } = require("electron");
 
 // --- Contract Definition ---
 const IPC_CHANNELS = {
@@ -7,25 +7,77 @@ const IPC_CHANNELS = {
   UPDATE_FAVICON: "update-favicon",
 };
 
-// --- State Variables ---
+// --- 1. Secure Bridge ---
+// Exposes a minimal API to the Main World for the injected script to use.
+contextBridge.exposeInMainWorld("gsuiteBridge", {
+  triggerNotification: (data) => {
+    ipcRenderer.send(IPC_CHANNELS.SHOW_NOTIFICATION, data);
+  },
+});
+
+// --- 2. Main World Injection (The Fix for Calendar) ---
+function injectNotificationProxy() {
+  try {
+    const scriptContent = `
+      (function() {
+        try {
+          // A. Mock Permissions API (Critical for Calendar)
+          if (navigator.permissions && navigator.permissions.query) {
+            const originalQuery = navigator.permissions.query;
+            navigator.permissions.query = (parameters) => {
+              if (parameters.name === 'notifications') {
+                return Promise.resolve({ state: 'granted', onchange: null });
+              }
+              return originalQuery(parameters);
+            };
+          }
+
+          // B. Mock Notification API
+          const OriginalNotification = window.Notification;
+
+          // 1. Force static permission properties
+          Object.defineProperty(window.Notification, 'permission', {
+            get: () => 'granted',
+            configurable: true
+          });
+          window.Notification.requestPermission = async () => 'granted';
+
+          // 2. Override Constructor
+          window.Notification = function (title, options) {
+            if (window.gsuiteBridge) {
+                window.gsuiteBridge.triggerNotification({
+                    title,
+                    body: options?.body,
+                });
+            }
+            // Return silent notification to satisfy internal app logic
+            return new OriginalNotification(title, { ...options, silent: true });
+          };
+
+          window.Notification.permission = 'granted';
+        } catch (e) {
+          console.error("[GSuite] Notification proxy error:", e);
+        }
+      })();
+    `;
+
+    const script = document.createElement("script");
+    script.textContent = scriptContent;
+    // Immediate injection
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+  } catch (error) {
+    console.error("[GSuite] Injection failed:", error);
+  }
+}
+
+// --- 3. Execute Injection ---
+// Must run immediately to intercept early checks.
+injectNotificationProxy();
+
+// --- 4. Logic for Isolated World (Favicons/Badges) ---
 let lastFaviconUrl = "";
 let lastBadgeCount = -1;
-
-/**
- * Intercepts web notifications and forwards them to the main process for native display.
- */
-function setupNativeNotificationProxy() {
-  const OriginalNotification = Notification;
-  window.Notification = function (title, options) {
-    // Relay the notification data to the main process
-    ipcRenderer.send(IPC_CHANNELS.SHOW_NOTIFICATION, {
-      title,
-      body: options.body,
-    });
-    // Return a silent original notification to satisfy the calling script's API expectations.
-    return new OriginalNotification(title, { ...options, silent: true });
-  };
-}
 
 function getSourceId() {
   const href = window.location.href;
@@ -35,15 +87,11 @@ function getSourceId() {
   return "gmail";
 }
 
-/**
- * Observes and reports favicon URL changes for both services.
- * This is the primary driver for the dynamic menu icons.
- */
 function observeFaviconChanges(sourceId) {
   const headElement = document.querySelector("head");
   if (!headElement) return;
 
-  const observer = new MutationObserver(() => {
+  const checkAndSend = () => {
     const faviconElement = document.querySelector('link[rel="icon"]');
     if (faviconElement && faviconElement.href !== lastFaviconUrl) {
       lastFaviconUrl = faviconElement.href;
@@ -52,30 +100,25 @@ function observeFaviconChanges(sourceId) {
         faviconUrl: lastFaviconUrl,
       });
     }
+  };
+
+  const observer = new MutationObserver(checkAndSend);
+  observer.observe(headElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["href"],
   });
 
-  observer.observe(headElement, { childList: true, subtree: true });
-
-  // Initial check on load
-  const initialFavicon = document.querySelector('link[rel="icon"]');
-  if (initialFavicon) {
-    lastFaviconUrl = initialFavicon.href;
-    ipcRenderer.send(IPC_CHANNELS.UPDATE_FAVICON, {
-      source: sourceId,
-      faviconUrl: lastFaviconUrl,
-    });
-  }
+  // Initial check
+  checkAndSend();
 }
 
-/**
- * Observes the document title specifically for Gmail's unread count.
- * This runs ONLY on the Gmail page.
- */
 function observeGmailBadge() {
   const titleElement = document.querySelector("head > title");
   if (!titleElement) return;
 
-  const observer = new MutationObserver(() => {
+  const checkAndSend = () => {
     const titleMatch = document.title.match(/\((\d+)\)/);
     const count = titleMatch ? parseInt(titleMatch[1], 10) : 0;
     if (count !== lastBadgeCount) {
@@ -85,30 +128,20 @@ function observeGmailBadge() {
         source: "gmail",
       });
     }
-  });
+  };
 
+  const observer = new MutationObserver(checkAndSend);
   observer.observe(titleElement, { childList: true });
 
-  // Initial check on load
-  const initialMatch = document.title.match(/\((\d+)\)/);
-  const initialCount = initialMatch ? parseInt(initialMatch[1], 10) : 0;
-  if (initialCount !== lastBadgeCount) {
-    lastBadgeCount = initialCount;
-    ipcRenderer.send(IPC_CHANNELS.UPDATE_BADGE, {
-      count: lastBadgeCount,
-      source: "gmail",
-    });
-  }
+  // Initial check
+  checkAndSend();
 }
 
 // --- Main Execution ---
 document.addEventListener("DOMContentLoaded", () => {
-  setupNativeNotificationProxy();
-  let sourceId = getSourceId();
-  // Favicon observation is universal for all services.
+  const sourceId = getSourceId();
   observeFaviconChanges(sourceId);
 
-  // Badge observation is specific to Gmail.
   if (sourceId === "gmail") {
     observeGmailBadge();
   }
