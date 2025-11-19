@@ -9,6 +9,7 @@ import {
   Menu,
 } from "electron";
 import path from "path";
+import fs from "fs";
 import { createMenu } from "./menu.js";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
@@ -69,6 +70,9 @@ const VALID_PRELOADS = new Set(
 // ES Module-safe way to get __dirname and import JSON.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "package.json"), "utf8"),
+);
 
 /**
  * Manages the main application window, its views, and all related lifecycle events.
@@ -80,6 +84,7 @@ class MainWindow {
     this.views = {};
     this.activeViewId = null;
     this.unreadCounts = { chat: 0, gmail: 0, drive: 0, calendar: 0 };
+    this.activeNotifications = new Set();
   }
 
   create() {
@@ -101,12 +106,7 @@ class MainWindow {
       minHeight: 700,
       title: "GSuite Client",
       backgroundColor: "#202124",
-      icon:
-        process.platform === "win32"
-          ? path.join(__dirname, "assets/icons/win/icon.ico")
-          : process.platform === "linux"
-            ? path.join(__dirname, "assets/icons/png/256x256.png")
-            : undefined,
+      icon: path.join(__dirname, "assets/icons/png/256x256.png"),
     });
 
     const appMenu = createMenu(this);
@@ -119,12 +119,22 @@ class MainWindow {
       this.store.set("windowBounds", this.win.getBounds()),
     );
     this.win.on("resize", () => this._layoutViews());
+
+    this.win.on("blur", () => {
+      const activeView = this.views[this.activeViewId];
+      activeView?.webContents.executeJavaScript("window.blur()", true);
+    });
+
+    this.win.on("focus", () => {
+      const activeView = this.views[this.activeViewId];
+      activeView?.webContents.focus();
+    });
   }
 
   _setupSecurity() {
     const session = this.win.webContents.session;
     session.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowedPermissions = new Set(["media"]);
+      const allowedPermissions = new Set(["media", "notifications"]);
       if (allowedPermissions.has(permission)) {
         callback(true);
       } else {
@@ -220,10 +230,10 @@ class MainWindow {
       lastTabId = VIEW_CONFIG.CHAT.id;
     }
 
-    const targetView = this._getViewFromId(lastTabId);
+    const targetView = this._getSafeView(lastTabId);
     if (targetView) {
-      this.win.setTopBrowserView(targetView);
       this.activeViewId = lastTabId;
+      this.win.setTopBrowserView(targetView);
     }
 
     this.views[VIEW_CONFIG.MENU.id].webContents.on("did-finish-load", () => {
@@ -240,11 +250,10 @@ class MainWindow {
   }
 
   /**
-   * Securely returns a view instance from its ID using a static dispatch pattern.
-   * @param {string} id The ID of the view to retrieve.
-   * @returns {BrowserView | undefined}
+   * Helper: Securely retrieves a view based on its ID using static dispatch.
+   * Prevents object injection attacks by avoiding dynamic property access.
    */
-  _getViewFromId(id) {
+  _getSafeView(id) {
     switch (id) {
       case "chat":
         return this.views.chat;
@@ -259,38 +268,55 @@ class MainWindow {
     }
   }
 
+  /**
+   * Helper: Securely updates the unread count state.
+   */
+  _updateUnreadCount(source, count) {
+    const newCount = count ?? 0;
+    switch (source) {
+      case "chat":
+        this.unreadCounts.chat = newCount;
+        break;
+      case "gmail":
+        this.unreadCounts.gmail = newCount;
+        break;
+      case "drive":
+        this.unreadCounts.drive = newCount;
+        break;
+      case "calendar":
+        this.unreadCounts.calendar = newCount;
+        break;
+    }
+  }
+
   _setupIpcHandlers() {
     ipcMain.on(IPC_CHANNELS.SWITCH_TAB, (event, tabId) => {
       if (!VALID_VIEW_IDS.has(tabId)) return;
 
-      const targetView = this._getViewFromId(tabId);
+      const targetView = this._getSafeView(tabId);
+
+      // 1. Blur the currently active view so it knows it's in the background.
+      // This allows apps like Calendar to enable desktop notifications.
+      if (this.activeViewId) {
+        const currentView = this._getSafeView(this.activeViewId);
+        currentView?.webContents.executeJavaScript("window.blur()", true);
+      }
+
+      // 2. Switch the view
       if (targetView) {
         this.store.set("lastTab", tabId);
         this.activeViewId = tabId;
         this.win.setTopBrowserView(targetView);
+
+        // 3. Focus the new view
+        targetView.webContents.focus();
       }
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_BADGE, (event, { count, source }) => {
       if (!VALID_VIEW_IDS.has(source)) return;
 
-      const newCount = count ?? 0;
-      switch (source) {
-        case "chat":
-          this.unreadCounts.chat = newCount;
-          break;
-        case "gmail":
-          this.unreadCounts.gmail = newCount;
-          break;
-        case "drive":
-          this.unreadCounts.drive = newCount;
-          break;
-        case "calendar":
-          this.unreadCounts.calendar = newCount;
-          break;
-        default:
-          return;
-      }
+      this._updateUnreadCount(source, count);
 
       const total = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
       app.setBadgeCount(total);
@@ -304,12 +330,25 @@ class MainWindow {
 
     ipcMain.on(IPC_CHANNELS.SHOW_NOTIFICATION, (event, { title, body }) => {
       if (Notification.isSupported()) {
+        const safeTitle = title || "GSuite Client";
+        const safeBody = body || "New notification";
+
         const notification = new Notification({
-          title,
-          body,
+          title: safeTitle,
+          body: safeBody,
           icon: path.join(__dirname, "assets/icon.png"),
+          sound: "default",
         });
-        notification.on("click", () => this.win?.focus());
+
+        this.activeNotifications.add(notification);
+        const cleanup = () => this.activeNotifications.delete(notification);
+
+        notification.on("close", cleanup);
+        notification.on("click", () => {
+          this.win?.focus();
+          cleanup();
+        });
+
         notification.show();
       }
     });
@@ -341,6 +380,10 @@ class MainWindow {
 let mainWindow;
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin") {
+    app.setName(packageJson.build.productName);
+  }
+
   mainWindow = new MainWindow();
   mainWindow.create();
 });

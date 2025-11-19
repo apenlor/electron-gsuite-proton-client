@@ -2,6 +2,7 @@ const { ipcRenderer } = require("electron");
 
 // --- Contract Definition ---
 const IPC_CHANNELS = {
+  SHOW_NOTIFICATION: "show-notification",
   UPDATE_BADGE: "update-badge",
   UPDATE_FAVICON: "update-favicon",
 };
@@ -9,6 +10,30 @@ const IPC_CHANNELS = {
 // --- State Variables ---
 let lastFaviconUrl = "";
 let lastBadgeCount = -1;
+
+/**
+ * Intercepts web notifications and forwards them to the main process for native display.
+ */
+function setupNativeNotificationProxy() {
+  const OriginalNotification = Notification;
+  window.Notification = function (title, options) {
+    // Relay the notification data to the main process
+    ipcRenderer.send(IPC_CHANNELS.SHOW_NOTIFICATION, {
+      title,
+      body: options.body,
+    });
+    // Return a silent original notification to satisfy the calling script's API expectations.
+    return new OriginalNotification(title, { ...options, silent: true });
+  };
+}
+
+function getSourceId() {
+  const href = window.location.href;
+  if (href.includes("mail.google.com/chat")) return "chat";
+  if (href.includes("drive.google.com")) return "drive";
+  if (href.includes("calendar.google.com")) return "calendar";
+  return "gmail";
+}
 
 /**
  * Observes and reports favicon URL changes for both services.
@@ -76,18 +101,9 @@ function observeGmailBadge() {
   }
 }
 
-function getSourceId() {
-  const href = window.location.href;
-  if (href.includes("mail.google.com/chat")) return "chat";
-  if (href.includes("drive.google.com")) return "drive";
-  if (href.includes("calendar.google.com")) return "calendar";
-
-  // Default to gmail if no other match
-  return "gmail";
-}
-
 // --- Main Execution ---
 document.addEventListener("DOMContentLoaded", () => {
+  setupNativeNotificationProxy();
   let sourceId = getSourceId();
   // Favicon observation is universal for all services.
   observeFaviconChanges(sourceId);
