@@ -308,7 +308,7 @@ class MainWindow {
           title: title || "GSuite Client",
           body: body || "New notification",
           icon: path.join(__dirname, "assets/icon.png"),
-          sound: "default",
+          silent: true,
         });
 
         this.activeNotifications.add(notification);

@@ -8,74 +8,110 @@ const IPC_CHANNELS = {
 };
 
 // --- 1. Secure Bridge ---
-// Exposes a minimal API to the Main World for the injected script to use.
 contextBridge.exposeInMainWorld("gsuiteBridge", {
   triggerNotification: (data) => {
     ipcRenderer.send(IPC_CHANNELS.SHOW_NOTIFICATION, data);
   },
 });
 
-// --- 2. Main World Injection (The Fix for Calendar) ---
+// --- 2. Main World Injection (The Fix for Calendar & Chat) ---
 function injectNotificationProxy() {
-  try {
-    const scriptContent = `
-      (function() {
-        try {
-          // A. Mock Permissions API (Critical for Calendar)
-          if (navigator.permissions && navigator.permissions.query) {
-            const originalQuery = navigator.permissions.query;
-            navigator.permissions.query = (parameters) => {
-              if (parameters.name === 'notifications') {
-                return Promise.resolve({ state: 'granted', onchange: null });
-              }
-              return originalQuery(parameters);
-            };
-          }
-
-          // B. Mock Notification API
-          const OriginalNotification = window.Notification;
-
-          // 1. Force static permission properties
-          Object.defineProperty(window.Notification, 'permission', {
-            get: () => 'granted',
-            configurable: true
-          });
-          window.Notification.requestPermission = async () => 'granted';
-
-          // 2. Override Constructor
-          window.Notification = function (title, options) {
-            if (window.gsuiteBridge) {
-                window.gsuiteBridge.triggerNotification({
-                    title,
-                    body: options?.body,
-                });
+  const scriptContent = `
+    (function() {
+      try {
+        // --- A. Mock Permissions API ---
+        if (navigator.permissions && navigator.permissions.query) {
+          const originalQuery = navigator.permissions.query;
+          navigator.permissions.query = (parameters) => {
+            if (parameters.name === 'notifications') {
+              return Promise.resolve({
+                state: 'granted',
+                onchange: null,
+                addEventListener: () => {},
+                removeEventListener: () => {},
+                dispatchEvent: () => false
+              });
             }
-            // Return silent notification to satisfy internal app logic
-            return new OriginalNotification(title, { ...options, silent: true });
+            return originalQuery(parameters);
           };
-
-          window.Notification.permission = 'granted';
-        } catch (e) {
-          console.error("[GSuite] Notification proxy error:", e);
         }
-      })();
-    `;
 
-    const script = document.createElement("script");
-    script.textContent = scriptContent;
-    // Immediate injection
-    (document.head || document.documentElement).appendChild(script);
-    script.remove();
-  } catch (error) {
-    console.error("[GSuite] Injection failed:", error);
+        // --- B. Class-based Notification Proxy (Main Thread) ---
+        const OriginalNotification = window.Notification;
+
+        class GSuiteNotification extends OriginalNotification {
+          constructor(title, options) {
+            if (window.gsuiteBridge) {
+              window.gsuiteBridge.triggerNotification({
+                title,
+                body: options?.body,
+              });
+            }
+            super(title, { ...options, silent: true });
+          }
+        }
+
+        Object.defineProperty(GSuiteNotification, 'permission', {
+          get: () => 'granted',
+          configurable: true
+        });
+        GSuiteNotification.requestPermission = async () => 'granted';
+        window.Notification = GSuiteNotification;
+
+        // --- C. Service Worker Proxy (Critical for Calendar) ---
+        // Calendar often uses the Service Worker to show notifications.
+        // We override the prototype to catch these calls too.
+        if (window.ServiceWorkerRegistration) {
+          const originalShowNotification = window.ServiceWorkerRegistration.prototype.showNotification;
+          window.ServiceWorkerRegistration.prototype.showNotification = function(title, options) {
+            if (window.gsuiteBridge) {
+              window.gsuiteBridge.triggerNotification({
+                title,
+                body: options?.body,
+              });
+            }
+            // Call original to maintain internal state, but silence it if possible options exist
+            return originalShowNotification.call(this, title, { ...options, silent: true });
+          };
+        }
+
+      } catch (e) {
+        // Ignore injection errors
+      }
+    })();
+  `;
+
+  // --- D. Injection Mechanism ---
+  const attemptInjection = () => {
+    const target = document.head || document.documentElement;
+    if (target) {
+      try {
+        const script = document.createElement("script");
+        script.textContent = scriptContent;
+        target.appendChild(script);
+        script.remove();
+        return true;
+      } catch (e) {
+        console.log(e);
+      }
+    }
+    return false;
+  };
+
+  if (!attemptInjection()) {
+    const observer = new MutationObserver((mutations, obs) => {
+      if (attemptInjection()) {
+        obs.disconnect();
+      }
+    });
+    observer.observe(document, { childList: true, subtree: true });
   }
 }
 
-// --- 3. Execute Injection ---
-// Must run immediately to intercept early checks.
+// Run immediately
 injectNotificationProxy();
 
-// --- 4. Logic for Isolated World (Favicons/Badges) ---
+// --- 3. Logic for Isolated World (Favicons/Badges) ---
 let lastFaviconUrl = "";
 let lastBadgeCount = -1;
 
@@ -92,9 +128,11 @@ function observeFaviconChanges(sourceId) {
   if (!headElement) return;
 
   const checkAndSend = () => {
-    const faviconElement = document.querySelector('link[rel="icon"]');
-    if (faviconElement && faviconElement.href !== lastFaviconUrl) {
-      lastFaviconUrl = faviconElement.href;
+    const links = Array.from(document.querySelectorAll("link[rel*='icon']"));
+    const currentUrl = links.length > 0 ? links[links.length - 1].href : null;
+
+    if (currentUrl && currentUrl !== lastFaviconUrl) {
+      lastFaviconUrl = currentUrl;
       ipcRenderer.send(IPC_CHANNELS.UPDATE_FAVICON, {
         source: sourceId,
         faviconUrl: lastFaviconUrl,
@@ -109,8 +147,6 @@ function observeFaviconChanges(sourceId) {
     attributes: true,
     attributeFilter: ["href"],
   });
-
-  // Initial check
   checkAndSend();
 }
 
@@ -132,12 +168,9 @@ function observeGmailBadge() {
 
   const observer = new MutationObserver(checkAndSend);
   observer.observe(titleElement, { childList: true });
-
-  // Initial check
   checkAndSend();
 }
 
-// --- Main Execution ---
 document.addEventListener("DOMContentLoaded", () => {
   const sourceId = getSourceId();
   observeFaviconChanges(sourceId);
