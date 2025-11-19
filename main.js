@@ -9,6 +9,7 @@ import {
   Menu,
 } from "electron";
 import path from "path";
+import fs from "fs";
 import { createMenu } from "./menu.js";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
@@ -16,7 +17,7 @@ import pkg from "electron-updater";
 const { autoUpdater } = pkg;
 import contextMenu from "electron-context-menu";
 
-// --- Constants & Configuration ---
+// --- Configuration ---
 
 const IPC_CHANNELS = {
   SWITCH_TAB: "switch-tab",
@@ -56,7 +57,6 @@ const VIEW_CONFIG = {
   },
 };
 
-// Security whitelists derived from the trusted configuration.
 const VALID_VIEW_IDS = new Set(
   Object.values(VIEW_CONFIG)
     .filter((c) => c.isContent)
@@ -66,13 +66,12 @@ const VALID_PRELOADS = new Set(
   Object.values(VIEW_CONFIG).map((c) => c.preload),
 );
 
-// ES Module-safe way to get __dirname and import JSON.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "package.json"), "utf8"),
+);
 
-/**
- * Manages the main application window, its views, and all related lifecycle events.
- */
 class MainWindow {
   constructor() {
     this.store = new Store();
@@ -80,6 +79,7 @@ class MainWindow {
     this.views = {};
     this.activeViewId = null;
     this.unreadCounts = { chat: 0, gmail: 0, drive: 0, calendar: 0 };
+    this.activeNotifications = new Set();
   }
 
   create() {
@@ -101,12 +101,7 @@ class MainWindow {
       minHeight: 700,
       title: "GSuite Client",
       backgroundColor: "#202124",
-      icon:
-        process.platform === "win32"
-          ? path.join(__dirname, "assets/icons/win/icon.ico")
-          : process.platform === "linux"
-            ? path.join(__dirname, "assets/icons/png/256x256.png")
-            : undefined,
+      icon: path.join(__dirname, "assets/icons/png/256x256.png"),
     });
 
     const appMenu = createMenu(this);
@@ -119,23 +114,36 @@ class MainWindow {
       this.store.set("windowBounds", this.win.getBounds()),
     );
     this.win.on("resize", () => this._layoutViews());
+
+    this.win.on("blur", () => {
+      const activeView = this.views[this.activeViewId];
+      activeView?.webContents.executeJavaScript("window.blur()", true);
+    });
+
+    this.win.on("focus", () => {
+      const activeView = this.views[this.activeViewId];
+      activeView?.webContents.focus();
+    });
   }
 
   _setupSecurity() {
     const session = this.win.webContents.session;
+
+    // 1. Permission Handler
     session.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowedPermissions = new Set(["media"]);
-      if (allowedPermissions.has(permission)) {
-        callback(true);
-      } else {
-        callback(false);
-      }
+      const allowedPermissions = new Set(["media", "notifications"]);
+      callback(allowedPermissions.has(permission));
     });
 
+    // 2. Header Stripping (Security Trade-off for Functionality)
     session.webRequest.onHeadersReceived((details, callback) => {
       const responseHeaders = { ...details.responseHeaders };
+      // Remove X-Frame-Options to allow embedding
       delete responseHeaders["x-frame-options"];
       delete responseHeaders["X-Frame-Options"];
+      // Remove CSP to allow script injection (Required for Notifications)
+      delete responseHeaders["content-security-policy"];
+      delete responseHeaders["Content-Security-Policy"];
       callback({ responseHeaders });
     });
   }
@@ -143,9 +151,7 @@ class MainWindow {
   _createViews() {
     Object.values(VIEW_CONFIG).forEach((config) => {
       if (!VALID_PRELOADS.has(config.preload)) {
-        throw new Error(
-          `[Security] Aborting: Invalid preload script in config: ${config.preload}`,
-        );
+        throw new Error(`[Security] Invalid preload: ${config.preload}`);
       }
 
       const isContent = config.isContent;
@@ -154,6 +160,7 @@ class MainWindow {
         contextIsolation: true,
         sandbox: isContent,
         nodeIntegration: !isContent,
+        backgroundThrottling: false, // Prevent background tabs from freezing
       };
 
       const view = new BrowserView({ webPreferences });
@@ -184,6 +191,7 @@ class MainWindow {
     const bounds = this.win.getBounds();
     const menuConfig = VIEW_CONFIG.MENU;
 
+    // Menu View
     this.views[menuConfig.id].setBounds({
       x: 0,
       y: 0,
@@ -192,15 +200,18 @@ class MainWindow {
     });
     this.views[menuConfig.id].setAutoResize({ height: true });
 
+    // Content Views
+    const contentBounds = {
+      x: menuConfig.width,
+      y: 0,
+      width: bounds.width - menuConfig.width,
+      height: bounds.height,
+    };
+
     Object.values(VIEW_CONFIG)
       .filter((c) => c.isContent)
       .forEach((config) => {
-        this.views[config.id].setBounds({
-          x: menuConfig.width,
-          y: 0,
-          width: bounds.width - menuConfig.width,
-          height: bounds.height,
-        });
+        this.views[config.id].setBounds(contentBounds);
         this.views[config.id].setAutoResize({ width: true, height: true });
       });
   }
@@ -216,14 +227,12 @@ class MainWindow {
       });
 
     let lastTabId = this.store.get("lastTab", VIEW_CONFIG.CHAT.id);
-    if (!VALID_VIEW_IDS.has(lastTabId)) {
-      lastTabId = VIEW_CONFIG.CHAT.id;
-    }
+    if (!VALID_VIEW_IDS.has(lastTabId)) lastTabId = VIEW_CONFIG.CHAT.id;
 
-    const targetView = this._getViewFromId(lastTabId);
+    const targetView = this._getSafeView(lastTabId);
     if (targetView) {
-      this.win.setTopBrowserView(targetView);
       this.activeViewId = lastTabId;
+      this.win.setTopBrowserView(targetView);
     }
 
     this.views[VIEW_CONFIG.MENU.id].webContents.on("did-finish-load", () => {
@@ -239,12 +248,7 @@ class MainWindow {
     autoUpdater.checkForUpdatesAndNotify();
   }
 
-  /**
-   * Securely returns a view instance from its ID using a static dispatch pattern.
-   * @param {string} id The ID of the view to retrieve.
-   * @returns {BrowserView | undefined}
-   */
-  _getViewFromId(id) {
+  _getSafeView(id) {
     switch (id) {
       case "chat":
         return this.views.chat;
@@ -259,38 +263,34 @@ class MainWindow {
     }
   }
 
+  _updateUnreadCount(source, count) {
+    const newCount = count ?? 0;
+    this.unreadCounts[source] = newCount; // Safe due to Valid ID check upstream
+  }
+
   _setupIpcHandlers() {
     ipcMain.on(IPC_CHANNELS.SWITCH_TAB, (event, tabId) => {
       if (!VALID_VIEW_IDS.has(tabId)) return;
 
-      const targetView = this._getViewFromId(tabId);
+      const targetView = this._getSafeView(tabId);
+
+      if (this.activeViewId) {
+        const currentView = this._getSafeView(this.activeViewId);
+        currentView?.webContents.executeJavaScript("window.blur()", true);
+      }
+
       if (targetView) {
         this.store.set("lastTab", tabId);
         this.activeViewId = tabId;
         this.win.setTopBrowserView(targetView);
+        targetView.webContents.focus();
       }
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_BADGE, (event, { count, source }) => {
       if (!VALID_VIEW_IDS.has(source)) return;
 
-      const newCount = count ?? 0;
-      switch (source) {
-        case "chat":
-          this.unreadCounts.chat = newCount;
-          break;
-        case "gmail":
-          this.unreadCounts.gmail = newCount;
-          break;
-        case "drive":
-          this.unreadCounts.drive = newCount;
-          break;
-        case "calendar":
-          this.unreadCounts.calendar = newCount;
-          break;
-        default:
-          return;
-      }
+      this._updateUnreadCount(source, count);
 
       const total = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
       app.setBadgeCount(total);
@@ -305,42 +305,71 @@ class MainWindow {
     ipcMain.on(IPC_CHANNELS.SHOW_NOTIFICATION, (event, { title, body }) => {
       if (Notification.isSupported()) {
         const notification = new Notification({
-          title,
-          body,
+          title: title || "GSuite Client",
+          body: body || "New notification",
           icon: path.join(__dirname, "assets/icon.png"),
+          silent: true,
         });
-        notification.on("click", () => this.win?.focus());
+
+        this.activeNotifications.add(notification);
+        notification.on("close", () =>
+          this.activeNotifications.delete(notification),
+        );
+        notification.on("click", () => {
+          this.win?.focus();
+          this.activeNotifications.delete(notification);
+        });
+
         notification.show();
       }
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_FAVICON, (event, { source, faviconUrl }) => {
       if (!faviconUrl) return;
-      const request = net.request(faviconUrl);
-      request.on("response", (response) => {
-        if (response.statusCode !== 200) return;
-        const chunks = [];
-        response.on("data", (chunk) => chunks.push(chunk));
-        response.on("end", () => {
-          const buffer = Buffer.concat(chunks);
-          const dataUrl = `data:${response.headers["content-type"]};base64,${buffer.toString("base64")}`;
-          if (this.views.menu) {
-            this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
-              source,
-              dataUrl,
-            });
-          }
+
+      // CASE 1: Already Data URL - Proxy directly
+      if (faviconUrl.startsWith("data:")) {
+        this.views.menu?.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+          source,
+          dataUrl: faviconUrl,
         });
-      });
-      request.end();
+        return;
+      }
+
+      // CASE 2: Remote URL - Fetch via Net
+      try {
+        const request = net.request(faviconUrl);
+        request.on("response", (response) => {
+          if (response.statusCode !== 200) return;
+          const chunks = [];
+          response.on("data", (chunk) => chunks.push(chunk));
+          response.on("end", () => {
+            const buffer = Buffer.concat(chunks);
+            const dataUrl = `data:${response.headers["content-type"]};base64,${buffer.toString("base64")}`;
+            if (this.views.menu) {
+              this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+                source,
+                dataUrl,
+              });
+            }
+          });
+        });
+        request.on("error", (e) =>
+          console.error(`Favicon error ${source}:`, e.message),
+        );
+        request.end();
+      } catch (e) {
+        console.error(`Favicon request failed ${source}:`, e.message);
+      }
     });
   }
 }
 
-// --- Application Lifecycle ---
+// --- Lifecycle ---
 let mainWindow;
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin") app.setName(packageJson.build.productName);
   mainWindow = new MainWindow();
   mainWindow.create();
 });
