@@ -245,16 +245,17 @@ class MainWindow {
 
     let lastTabId = this.store.get("lastTab", VIEW_CONFIG.GMAIL.id);
 
-    if (!this.views[lastTabId]) {
+    if (!this._getSafeView(lastTabId)) {
       const firstAvailable = Object.keys(this.views).find(
         (id) => id !== "menu",
       );
       lastTabId = firstAvailable || null;
     }
 
-    if (lastTabId && this.views[lastTabId]) {
+    const targetView = this._getSafeView(lastTabId);
+    if (lastTabId && targetView) {
       this.activeViewId = lastTabId;
-      this.win.setTopBrowserView(this.views[lastTabId]);
+      this.win.setTopBrowserView(targetView);
     }
 
     this.views[VIEW_CONFIG.MENU.id].webContents.on("did-finish-load", () => {
@@ -275,25 +276,46 @@ class MainWindow {
   }
 
   _getSafeView(id) {
-    return this.views[id];
+    switch (id) {
+      case "menu":
+        return this.views.menu;
+      case "chat":
+        return this.views.chat;
+      case "gmail":
+        return this.views.gmail;
+      case "drive":
+        return this.views.drive;
+      default:
+        return undefined;
+    }
   }
 
   _updateUnreadCount(source, count) {
-    if (Object.prototype.hasOwnProperty.call(this.unreadCounts, source)) {
-      this.unreadCounts[source] = count ?? 0;
+    const newCount = count ?? 0;
+    switch (source) {
+      case "chat":
+        this.unreadCounts.chat = newCount;
+        break;
+      case "gmail":
+        this.unreadCounts.gmail = newCount;
+        break;
+      case "drive":
+        this.unreadCounts.drive = newCount;
+        break;
+      default:
+        // Ignore invalid sources
+        break;
     }
   }
 
   _setupIpcHandlers() {
     ipcMain.on(IPC_CHANNELS.SWITCH_TAB, (event, tabId) => {
-      const targetView = this.views[tabId];
+      const targetView = this._getSafeView(tabId);
       if (!targetView) return;
 
-      if (this.activeViewId && this.views[this.activeViewId]) {
-        this.views[this.activeViewId].webContents.executeJavaScript(
-          "window.blur()",
-          true,
-        );
+      const currentView = this._getSafeView(this.activeViewId);
+      if (this.activeViewId && currentView) {
+        currentView.webContents.executeJavaScript("window.blur()", true);
       }
 
       this.store.set("lastTab", tabId);
