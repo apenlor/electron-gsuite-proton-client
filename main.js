@@ -107,7 +107,7 @@ class MainWindow {
       minHeight: 700,
       title: "GSuite Client",
       backgroundColor: "#202124",
-      icon: path.join(__dirname, "assets/icons/png/256x256.png"),
+      icon: path.join(__dirname, "assets/icons/png/1024x1024.png"),
     });
 
     const appMenu = createMenu(this);
