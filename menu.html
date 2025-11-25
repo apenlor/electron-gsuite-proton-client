@@ -28,6 +28,9 @@
         align-items: center;
         padding-top: 15px;
         box-sizing: border-box;
+        /* Allow clicking everywhere */
+        -webkit-app-region: no-drag;
+        user-select: none;
       }
 
       .icon-container {
@@ -59,15 +62,15 @@
       }
 
       .nav-button img {
-        width: 65%; /* Slightly smaller icon within the larger button */
+        width: 65%;
         height: 65%;
         pointer-events: none;
       }
 
       .badge {
         position: absolute;
-        top: 6px; /* Adjusted for new button size */
-        right: 6px; /* Adjusted for new button size */
+        top: 6px;
+        right: 6px;
         background-color: var(--badge-color);
         color: white;
         border-radius: 50%;
@@ -93,56 +96,29 @@
     </style>
   </head>
   <body>
-    <!-- Top-aligned Icons -->
-    <div class="icon-container" data-service-id="calendar">
-      <button class="nav-button" title="Google Calendar">
-        <img
-          src="assets/default/calendar.png"
-          alt="Calendar"
-          data-icon-id="calendar"
-        />
-      </button>
-      <span class="badge" data-badge-id="calendar"></span>
-    </div>
-    <div class="icon-container" data-service-id="gmail">
-      <button class="nav-button" title="Gmail">
-        <img src="assets/default/gmail.png" alt="Gmail" data-icon-id="gmail" />
-      </button>
-      <span class="badge" data-badge-id="gmail"></span>
-    </div>
-    <div class="icon-container" data-service-id="chat">
-      <button class="nav-button" title="Google Chat">
-        <img src="assets/default/chat.png" alt="Chat" data-icon-id="chat" />
-      </button>
-      <span class="badge" data-badge-id="chat"></span>
-    </div>
-
-    <!-- This element will expand to fill all available space -->
-    <div class="spacer"></div>
-
-    <!-- Bottom-aligned Icons -->
-    <div class="icon-container" data-service-id="drive">
-      <button class="nav-button" title="Google Drive">
-        <img src="assets/default/drive.png" alt="Drive" data-icon-id="drive" />
-      </button>
-      <span class="badge" data-badge-id="drive"></span>
-    </div>
+    <!-- Dynamic Content Container -->
+    <div
+      id="menu-root"
+      style="
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        height: 100%;
+      "
+    ></div>
 
     <script type="module">
-      /**
-       * @module MenuController
-       * Manages the UI and state of the side navigation menu.
-       * It listens to events from the main process and user interactions.
-       */
       class MenuController {
         constructor() {
-          this.container = document.body;
+          this.container = document.getElementById("menu-root");
           this.activeServiceId = null;
-          this._bindEvents();
           this._setupIpcListeners();
+          this._bindGlobalEvents();
         }
 
-        _bindEvents() {
+        _bindGlobalEvents() {
+          // Left Click: Navigation
           this.container.addEventListener("click", (event) => {
             const button = event.target.closest(".nav-button");
             if (!button) return;
@@ -153,9 +129,26 @@
               this.setActiveButton(serviceId);
             }
           });
+
+          // Right Click: Context Menu (Settings)
+          window.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            window.electronAPI.send("show-context-menu");
+          });
         }
 
         _setupIpcListeners() {
+          // Receive configuration from Main to build the UI
+          window.electronAPI.on(
+            "get-enabled-services",
+            ({ activeId, services, config }) => {
+              this.buildMenu(services, config);
+              if (activeId) {
+                this.setActiveButton(activeId);
+              }
+            },
+          );
+
           window.electronAPI.on("set-active-tab", (serviceId) =>
             this.setActiveButton(serviceId),
           );
@@ -169,10 +162,49 @@
           );
         }
 
+        buildMenu(enabledServices, viewConfig) {
+          this.container.innerHTML = "";
+
+          // 1. Render Primary Apps (Top: Gmail, Chat)
+          Object.values(viewConfig).forEach((conf) => {
+            if (!conf.isContent) return;
+            if (!enabledServices[conf.id]) return;
+            if (conf.id === "drive") return; // Skip Drive, render it later
+
+            this._createButton(conf);
+          });
+
+          // 2. Add Spacer to push Drive to bottom
+          const spacer = document.createElement("div");
+          spacer.className = "spacer";
+          this.container.appendChild(spacer);
+
+          // 3. Render Drive (Bottom)
+          const driveConf = Object.values(viewConfig).find(
+            (c) => c.id === "drive",
+          );
+          if (driveConf && enabledServices.drive) {
+            this._createButton(driveConf);
+          }
+        }
+
+        _createButton(conf) {
+          const div = document.createElement("div");
+          div.className = "icon-container";
+          div.dataset.serviceId = conf.id;
+
+          div.innerHTML = `
+          <button class="nav-button" title="${conf.title}">
+            <img src="${conf.icon}" alt="${conf.title}" data-icon-id="${conf.id}" />
+          </button>
+          <span class="badge" data-badge-id="${conf.id}"></span>
+        `;
+          this.container.appendChild(div);
+        }
+
         setActiveButton(serviceId) {
           if (this.activeServiceId === serviceId) return;
 
-          // Deactivate previous button if it exists
           if (this.activeServiceId) {
             this.container
               .querySelector(
@@ -181,11 +213,13 @@
               ?.classList.remove("active");
           }
 
-          // Activate new button
-          this.container
-            .querySelector(`[data-service-id="${serviceId}"] .nav-button`)
-            ?.classList.add("active");
-          this.activeServiceId = serviceId;
+          const newBtn = this.container.querySelector(
+            `[data-service-id="${serviceId}"] .nav-button`,
+          );
+          if (newBtn) {
+            newBtn.classList.add("active");
+            this.activeServiceId = serviceId;
+          }
         }
 
         updateBadges(counts) {
@@ -214,7 +248,6 @@
         }
       }
 
-      // Initialize the controller once the DOM is ready.
       new MenuController();
     </script>
   </body>

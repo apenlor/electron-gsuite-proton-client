@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld("gsuiteBridge", {
   },
 });
 
-// --- 2. Main World Injection (The Fix for Calendar & Chat) ---
+// --- 2. Main World Injection ---
 function injectNotificationProxy() {
   const scriptContent = `
     (function() {
@@ -36,7 +36,7 @@ function injectNotificationProxy() {
           };
         }
 
-        // --- B. Class-based Notification Proxy (Main Thread) ---
+        // --- B. Class-based Notification Proxy ---
         const OriginalNotification = window.Notification;
 
         class GSuiteNotification extends OriginalNotification {
@@ -58,30 +58,13 @@ function injectNotificationProxy() {
         GSuiteNotification.requestPermission = async () => 'granted';
         window.Notification = GSuiteNotification;
 
-        // --- C. Service Worker Proxy (Critical for Calendar) ---
-        // Calendar often uses the Service Worker to show notifications.
-        // We override the prototype to catch these calls too.
-        if (window.ServiceWorkerRegistration) {
-          const originalShowNotification = window.ServiceWorkerRegistration.prototype.showNotification;
-          window.ServiceWorkerRegistration.prototype.showNotification = function(title, options) {
-            if (window.gsuiteBridge) {
-              window.gsuiteBridge.triggerNotification({
-                title,
-                body: options?.body,
-              });
-            }
-            // Call original to maintain internal state, but silence it if possible options exist
-            return originalShowNotification.call(this, title, { ...options, silent: true });
-          };
-        }
-
       } catch (e) {
         // Ignore injection errors
       }
     })();
   `;
 
-  // --- D. Injection Mechanism ---
+  // --- C. Injection Mechanism ---
   const attemptInjection = () => {
     const target = document.head || document.documentElement;
     if (target) {
@@ -91,8 +74,8 @@ function injectNotificationProxy() {
         target.appendChild(script);
         script.remove();
         return true;
-      } catch (e) {
-        console.log(e);
+      } catch {
+        // Ignore DOM errors
       }
     }
     return false;
@@ -119,7 +102,6 @@ function getSourceId() {
   const href = window.location.href;
   if (href.includes("mail.google.com/chat")) return "chat";
   if (href.includes("drive.google.com")) return "drive";
-  if (href.includes("calendar.google.com")) return "calendar";
   return "gmail";
 }
 

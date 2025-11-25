@@ -7,6 +7,7 @@ import {
   Notification,
   net,
   Menu,
+  MenuItem,
 } from "electron";
 import path from "path";
 import fs from "fs";
@@ -27,41 +28,39 @@ const IPC_CHANNELS = {
   UPDATE_MENU_BADGES: "update-menu-badges",
   UPDATE_FAVICON: "update-favicon",
   UPDATE_MENU_ICON: "update-menu-icon",
+  SHOW_CONTEXT_MENU: "show-context-menu",
+  GET_ENABLED_SERVICES: "get-enabled-services",
 };
 
+// Enhanced Config: Reordered for UX (Gmail -> Chat -> Drive)
 const VIEW_CONFIG = {
   MENU: { id: "menu", width: 80, preload: "preload.js", isContent: false },
-  CHAT: {
-    id: "chat",
-    url: "https://mail.google.com/chat/u/0/#chat/home",
+  GMAIL: {
+    id: "gmail",
+    title: "Gmail",
+    icon: "assets/default/gmail.png",
+    url: "https://mail.google.com/mail/u/0/",
     preload: "preload-web.js",
     isContent: true,
   },
-  GMAIL: {
-    id: "gmail",
-    url: "https://mail.google.com/mail/u/0/",
+  CHAT: {
+    id: "chat",
+    title: "Google Chat",
+    icon: "assets/default/chat.png",
+    url: "https://mail.google.com/chat/u/0/#chat/home",
     preload: "preload-web.js",
     isContent: true,
   },
   DRIVE: {
     id: "drive",
+    title: "Google Drive",
+    icon: "assets/default/drive.png",
     url: "https://drive.google.com/drive/u/0/my-drive",
-    preload: "preload-web.js",
-    isContent: true,
-  },
-  CALENDAR: {
-    id: "calendar",
-    url: "https://calendar.google.com/calendar/u/0/r",
     preload: "preload-web.js",
     isContent: true,
   },
 };
 
-const VALID_VIEW_IDS = new Set(
-  Object.values(VIEW_CONFIG)
-    .filter((c) => c.isContent)
-    .map((c) => c.id),
-);
 const VALID_PRELOADS = new Set(
   Object.values(VIEW_CONFIG).map((c) => c.preload),
 );
@@ -78,8 +77,15 @@ class MainWindow {
     this.win = null;
     this.views = {};
     this.activeViewId = null;
-    this.unreadCounts = { chat: 0, gmail: 0, drive: 0, calendar: 0 };
+    this.unreadCounts = {};
     this.activeNotifications = new Set();
+
+    // Load persistence state (Default: all enabled)
+    this.enabledServices = this.store.get("services", {
+      chat: true,
+      gmail: true,
+      drive: true,
+    });
   }
 
   create() {
@@ -129,19 +135,16 @@ class MainWindow {
   _setupSecurity() {
     const session = this.win.webContents.session;
 
-    // 1. Permission Handler
     session.setPermissionRequestHandler((webContents, permission, callback) => {
-      const allowedPermissions = new Set(["media", "notifications"]);
+      // Deny notifications to avoid duplicates (handled via IPC)
+      const allowedPermissions = new Set(["media"]);
       callback(allowedPermissions.has(permission));
     });
 
-    // 2. Header Stripping (Security Trade-off for Functionality)
     session.webRequest.onHeadersReceived((details, callback) => {
       const responseHeaders = { ...details.responseHeaders };
-      // Remove X-Frame-Options to allow embedding
       delete responseHeaders["x-frame-options"];
       delete responseHeaders["X-Frame-Options"];
-      // Remove CSP to allow script injection (Required for Notifications)
       delete responseHeaders["content-security-policy"];
       delete responseHeaders["Content-Security-Policy"];
       callback({ responseHeaders });
@@ -150,8 +153,14 @@ class MainWindow {
 
   _createViews() {
     Object.values(VIEW_CONFIG).forEach((config) => {
+      // 1. Security Check
       if (!VALID_PRELOADS.has(config.preload)) {
         throw new Error(`[Security] Invalid preload: ${config.preload}`);
+      }
+
+      // 2. Skip Disabled Services
+      if (config.isContent && !this.enabledServices[config.id]) {
+        return;
       }
 
       const isContent = config.isContent;
@@ -160,12 +169,21 @@ class MainWindow {
         contextIsolation: true,
         sandbox: isContent,
         nodeIntegration: !isContent,
-        backgroundThrottling: false, // Prevent background tabs from freezing
+        backgroundThrottling: false,
       };
 
       const view = new BrowserView({ webPreferences });
 
       if (isContent) {
+        this.unreadCounts[config.id] = 0;
+
+        const originalUserAgent = view.webContents.getUserAgent();
+        const cleanUserAgent = originalUserAgent.replace(
+          /Electron\/[0-9.]+\s/,
+          "",
+        );
+        view.webContents.setUserAgent(cleanUserAgent);
+
         contextMenu({
           window: view,
           showInspectElement: true,
@@ -191,7 +209,6 @@ class MainWindow {
     const bounds = this.win.getBounds();
     const menuConfig = VIEW_CONFIG.MENU;
 
-    // Menu View
     this.views[menuConfig.id].setBounds({
       x: 0,
       y: 0,
@@ -200,7 +217,6 @@ class MainWindow {
     });
     this.views[menuConfig.id].setAutoResize({ height: true });
 
-    // Content Views
     const contentBounds = {
       x: menuConfig.width,
       y: 0,
@@ -208,37 +224,47 @@ class MainWindow {
       height: bounds.height,
     };
 
-    Object.values(VIEW_CONFIG)
-      .filter((c) => c.isContent)
-      .forEach((config) => {
-        this.views[config.id].setBounds(contentBounds);
-        this.views[config.id].setAutoResize({ width: true, height: true });
-      });
+    Object.values(this.views).forEach((view) => {
+      if (view !== this.views.menu) {
+        view.setBounds(contentBounds);
+        view.setAutoResize({ width: true, height: true });
+      }
+    });
   }
 
   _loadInitialContent() {
     this.views[VIEW_CONFIG.MENU.id].webContents.loadFile(
       path.join(__dirname, "menu.html"),
     );
+
     Object.values(VIEW_CONFIG)
-      .filter((c) => c.isContent)
+      .filter((c) => c.isContent && this.views[c.id])
       .forEach((config) => {
         this.views[config.id].webContents.loadURL(config.url);
       });
 
-    let lastTabId = this.store.get("lastTab", VIEW_CONFIG.CHAT.id);
-    if (!VALID_VIEW_IDS.has(lastTabId)) lastTabId = VIEW_CONFIG.CHAT.id;
+    let lastTabId = this.store.get("lastTab", VIEW_CONFIG.GMAIL.id);
 
-    const targetView = this._getSafeView(lastTabId);
-    if (targetView) {
+    if (!this.views[lastTabId]) {
+      const firstAvailable = Object.keys(this.views).find(
+        (id) => id !== "menu",
+      );
+      lastTabId = firstAvailable || null;
+    }
+
+    if (lastTabId && this.views[lastTabId]) {
       this.activeViewId = lastTabId;
-      this.win.setTopBrowserView(targetView);
+      this.win.setTopBrowserView(this.views[lastTabId]);
     }
 
     this.views[VIEW_CONFIG.MENU.id].webContents.on("did-finish-load", () => {
       this.views[VIEW_CONFIG.MENU.id].webContents.send(
-        IPC_CHANNELS.SET_ACTIVE_TAB,
-        lastTabId,
+        IPC_CHANNELS.GET_ENABLED_SERVICES,
+        {
+          activeId: this.activeViewId,
+          services: this.enabledServices,
+          config: VIEW_CONFIG,
+        },
       );
     });
   }
@@ -249,49 +275,35 @@ class MainWindow {
   }
 
   _getSafeView(id) {
-    switch (id) {
-      case "chat":
-        return this.views.chat;
-      case "gmail":
-        return this.views.gmail;
-      case "drive":
-        return this.views.drive;
-      case "calendar":
-        return this.views.calendar;
-      default:
-        return undefined;
-    }
+    return this.views[id];
   }
 
   _updateUnreadCount(source, count) {
-    const newCount = count ?? 0;
-    this.unreadCounts[source] = newCount; // Safe due to Valid ID check upstream
+    if (Object.prototype.hasOwnProperty.call(this.unreadCounts, source)) {
+      this.unreadCounts[source] = count ?? 0;
+    }
   }
 
   _setupIpcHandlers() {
     ipcMain.on(IPC_CHANNELS.SWITCH_TAB, (event, tabId) => {
-      if (!VALID_VIEW_IDS.has(tabId)) return;
+      const targetView = this.views[tabId];
+      if (!targetView) return;
 
-      const targetView = this._getSafeView(tabId);
-
-      if (this.activeViewId) {
-        const currentView = this._getSafeView(this.activeViewId);
-        currentView?.webContents.executeJavaScript("window.blur()", true);
+      if (this.activeViewId && this.views[this.activeViewId]) {
+        this.views[this.activeViewId].webContents.executeJavaScript(
+          "window.blur()",
+          true,
+        );
       }
 
-      if (targetView) {
-        this.store.set("lastTab", tabId);
-        this.activeViewId = tabId;
-        this.win.setTopBrowserView(targetView);
-        targetView.webContents.focus();
-      }
+      this.store.set("lastTab", tabId);
+      this.activeViewId = tabId;
+      this.win.setTopBrowserView(targetView);
+      targetView.webContents.focus();
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_BADGE, (event, { count, source }) => {
-      if (!VALID_VIEW_IDS.has(source)) return;
-
       this._updateUnreadCount(source, count);
-
       const total = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
       app.setBadgeCount(total);
       if (this.views.menu) {
@@ -310,7 +322,6 @@ class MainWindow {
           icon: path.join(__dirname, "assets/icon.png"),
           silent: true,
         });
-
         this.activeNotifications.add(notification);
         notification.on("close", () =>
           this.activeNotifications.delete(notification),
@@ -319,24 +330,21 @@ class MainWindow {
           this.win?.focus();
           this.activeNotifications.delete(notification);
         });
-
         notification.show();
       }
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_FAVICON, (event, { source, faviconUrl }) => {
-      if (!faviconUrl) return;
+      if (!faviconUrl || !this.views.menu) return;
 
-      // CASE 1: Already Data URL - Proxy directly
       if (faviconUrl.startsWith("data:")) {
-        this.views.menu?.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+        this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
           source,
           dataUrl: faviconUrl,
         });
         return;
       }
 
-      // CASE 2: Remote URL - Fetch via Net
       try {
         const request = net.request(faviconUrl);
         request.on("response", (response) => {
@@ -346,12 +354,10 @@ class MainWindow {
           response.on("end", () => {
             const buffer = Buffer.concat(chunks);
             const dataUrl = `data:${response.headers["content-type"]};base64,${buffer.toString("base64")}`;
-            if (this.views.menu) {
-              this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
-                source,
-                dataUrl,
-              });
-            }
+            this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+              source,
+              dataUrl,
+            });
           });
         });
         request.on("error", (e) =>
@@ -362,10 +368,37 @@ class MainWindow {
         console.error(`Favicon request failed ${source}:`, e.message);
       }
     });
+
+    ipcMain.on(IPC_CHANNELS.SHOW_CONTEXT_MENU, () => {
+      const menu = new Menu();
+
+      menu.append(new MenuItem({ label: "Visible Services", enabled: false }));
+      menu.append(new MenuItem({ type: "separator" }));
+
+      Object.values(VIEW_CONFIG)
+        .filter((c) => c.isContent)
+        .forEach((config) => {
+          menu.append(
+            new MenuItem({
+              label: config.title,
+              type: "checkbox",
+              checked: this.enabledServices[config.id],
+              click: () => {
+                this.enabledServices[config.id] =
+                  !this.enabledServices[config.id];
+                this.store.set("services", this.enabledServices);
+                app.relaunch();
+                app.exit(0);
+              },
+            }),
+          );
+        });
+
+      menu.popup({ window: this.win });
+    });
   }
 }
 
-// --- Lifecycle ---
 let mainWindow;
 
 app.whenReady().then(() => {

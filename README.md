@@ -4,7 +4,7 @@
 [![Build & Release](https://github.com/apenlor/electron-gsuite-client/actions/workflows/build.yml/badge.svg)](https://github.com/apenlor/electron-gsuite-client/actions)
 [![Latest Release](https://img.shields.io/github/v/release/apenlor/electron-gsuite-client)](https://github.com/apenlor/electron-gsuite-client/releases/latest)
 
-A native, cross-platform desktop client for Google Workspace, consolidating Gmail, Chat, Drive, and Calendar into a single, seamless application. Built with Electron **(just for fun)**
+A native, cross-platform desktop client for Google Workspace, consolidating Gmail, Chat, and Drive into a single, seamless application. Built with Electron **(just for fun)**
 
 ![Application Screenshot](assets/img/snapshot.png)
 _The application running on macOS, showing the Gmail view._
@@ -13,13 +13,14 @@ _The application running on macOS, showing the Gmail view._
 
 ## Features
 
-- **Unified Interface:** Access Gmail, Google Chat, Google Drive, and Google Calendar from a single, clean side-menu.
+- **Unified Interface:** Access Gmail, Google Chat, and Google Drive from a single, clean side-menu.
+- **Customizable Workspace:** Right-click the sidebar to enable or disable specific services (e.g., hide Drive if you only use Chat). Settings are persisted automatically.
 - **Native OS Integration:**
   - Dock/Taskbar badge for a combined total of unread message counts.
   - Native OS notifications for new messages and emails.
   - Standard application menu (`File`, `Edit`, `View`) with familiar keyboard shortcuts (`Cmd/Ctrl+R` for Reload, etc.).
 - **Dynamic UI:** The menu icons dynamically update to reflect the real-time status of each service by proxying the official favicons.
-- **State Persistence:** Remembers your window size, position, and the last-used service between sessions for a consistent experience.
+- **State Persistence:** Remembers your window size, position, active tab, and enabled services between sessions.
 - **Security Hardened:** All third-party web content is run in a sandboxed process, with strict permission handling and a secure IPC bridge.
 
 ## Installation
@@ -75,7 +76,7 @@ _Note: The application is currently unsigned. Your OS may show a security warnin
 
 This application is built with configuration-driven Electron architecture.
 
-- **Main Process (`main.js`):** A single `MainWindow` class manages the application lifecycle, window state, and all `BrowserView`s. The views are generated dynamically based on the `VIEW_CONFIG` object, making it easy to add new services.
+- **Main Process (`main.js`):** A single `MainWindow` class manages the application lifecycle, window state, and all `BrowserView`s. The views are generated dynamically based on a combination of the static `VIEW_CONFIG` and the user's persistent preferences (via `electron-store`).
 - **Preload Scripts (`preload.js`, `preload-web.js`):** These act as a secure bridge between the isolated renderer processes and the Node.js environment. They use `contextBridge` to expose a minimal, secure API contract, preventing renderer processes from accessing Node.js directly.
 - **Security Model:** All third-party web content is rendered in `sandbox: true` `BrowserView`s with `contextIsolation` enabled. A minimal set of header modifications is performed to ensure functionality while maintaining a strong security posture. All IPC communication is validated against whitelists to prevent object injection vulnerabilities.
 - **CI/CD:** An automated GitHub Actions workflow validates, builds, and publishes the application for all three major platforms upon the push of a version tag, enabling automated releases and auto-updates.
