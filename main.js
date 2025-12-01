@@ -32,7 +32,6 @@ const IPC_CHANNELS = {
   GET_ENABLED_SERVICES: "get-enabled-services",
 };
 
-// Enhanced Config: Reordered for UX (Gmail -> Chat -> Drive)
 const VIEW_CONFIG = {
   MENU: { id: "menu", width: 80, preload: "preload.js", isContent: false },
   GMAIL: {
@@ -85,6 +84,10 @@ class MainWindow {
       chat: true,
       gmail: true,
       drive: true,
+    });
+
+    this.notificationConfig = this.store.get("notificationConfig", {
+      showContent: true,
     });
   }
 
@@ -338,9 +341,21 @@ class MainWindow {
 
     ipcMain.on(IPC_CHANNELS.SHOW_NOTIFICATION, (event, { title, body }) => {
       if (Notification.isSupported()) {
+        const showContent = this.store.get(
+          "notificationConfig.showContent",
+          true,
+        );
+        // If content is hidden, use generic text. Otherwise use original.
+        const safeTitle = showContent
+          ? title || "GSuite Client"
+          : "New Message";
+        const safeBody = showContent
+          ? body || "New notification"
+          : "You have a new message";
+
         const notification = new Notification({
-          title: title || "GSuite Client",
-          body: body || "New notification",
+          title: safeTitle,
+          body: safeBody,
           icon: path.join(__dirname, "assets/icon.png"),
           silent: true,
         });
@@ -415,6 +430,22 @@ class MainWindow {
             }),
           );
         });
+
+      menu.append(new MenuItem({ type: "separator" }));
+      menu.append(new MenuItem({ label: "Notifications", enabled: false }));
+      menu.append(new MenuItem({ type: "separator" }));
+
+      menu.append(
+        new MenuItem({
+          label: "Show Content",
+          type: "checkbox",
+          checked: this.notificationConfig.showContent,
+          click: (menuItem) => {
+            this.notificationConfig.showContent = menuItem.checked;
+            this.store.set("notificationConfig", this.notificationConfig);
+          },
+        }),
+      );
 
       menu.popup({ window: this.win });
     });
