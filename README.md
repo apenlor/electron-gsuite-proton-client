@@ -4,7 +4,7 @@
 [![Build & Release](https://github.com/apenlor/electron-gsuite-client/actions/workflows/build.yml/badge.svg)](https://github.com/apenlor/electron-gsuite-client/actions)
 [![Latest Release](https://img.shields.io/github/v/release/apenlor/electron-gsuite-client)](https://github.com/apenlor/electron-gsuite-client/releases/latest)
 
-A native, cross-platform desktop client for Google Workspace, consolidating Gmail, Chat, and Drive into a single, seamless application. Built with Electron **(just for fun)**
+A native, cross-platform desktop client for Google Workspace, consolidating Gmail, Chat, Tasks, and Drive into a single, seamless application. Built with Electron **(just for fun)**
 
 ![Application Screenshot](assets/img/snapshot.png)
 _The application running on macOS, showing the Gmail view._

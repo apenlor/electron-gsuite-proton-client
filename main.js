@@ -58,6 +58,14 @@ const VIEW_CONFIG = {
     preload: "preload-web.js",
     isContent: true,
   },
+  TASKS: {
+    id: "tasks",
+    title: "Google Tasks",
+    icon: "assets/default/tasks.png",
+    url: "https://tasks.google.com/tasks",
+    preload: "preload-web.js",
+    isContent: true,
+  },
 };
 
 const VALID_PRELOADS = new Set(
@@ -84,6 +92,7 @@ class MainWindow {
       chat: true,
       gmail: true,
       drive: true,
+      tasks: true,
     });
 
     this.notificationConfig = this.store.get("notificationConfig", {
@@ -288,6 +297,8 @@ class MainWindow {
         return this.views.gmail;
       case "drive":
         return this.views.drive;
+      case "tasks":
+        return this.views.tasks;
       default:
         return undefined;
     }
@@ -304,6 +315,9 @@ class MainWindow {
         break;
       case "drive":
         this.unreadCounts.drive = newCount;
+        break;
+      case "tasks":
+        this.unreadCounts.tasks = newCount;
         break;
       default:
         // Ignore invalid sources

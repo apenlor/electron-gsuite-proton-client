@@ -1,6 +1,6 @@
 {
   "name": "gsuite-desktop-client",
-  "version": "2.0.1",
+  "version": "2.1.1",
   "description": "A native desktop client for Google Chat, Drive, Calendar and Gmail, built with Electron.",
   "author": "apenlor",
   "homepage": "https://github.com/apenlor/electron-gsuite-client#readme",

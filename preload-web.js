@@ -102,6 +102,7 @@ function getSourceId() {
   const href = window.location.href;
   if (href.includes("mail.google.com/chat")) return "chat";
   if (href.includes("drive.google.com")) return "drive";
+  if (href.includes("tasks.google.com")) return "tasks";
   return "gmail";
 }
 
