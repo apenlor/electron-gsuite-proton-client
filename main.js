@@ -34,6 +34,14 @@ const IPC_CHANNELS = {
 
 const VIEW_CONFIG = {
   MENU: { id: "menu", width: 80, preload: "preload.js", isContent: false },
+  AISTUDIO: {
+    id: "aistudio",
+    title: "AI Studio",
+    icon: "assets/default/aistudio.png",
+    url: "https://aistudio.google.com",
+    preload: "preload-web.js",
+    isContent: true,
+  },
   GMAIL: {
     id: "gmail",
     title: "Gmail",
@@ -89,6 +97,7 @@ class MainWindow {
 
     // Load persistence state (Default: all enabled)
     this.enabledServices = this.store.get("services", {
+      aistudio: true,
       chat: true,
       gmail: true,
       drive: true,
@@ -291,6 +300,8 @@ class MainWindow {
     switch (id) {
       case "menu":
         return this.views.menu;
+      case "aistudio":
+        return this.views.aistudio;
       case "chat":
         return this.views.chat;
       case "gmail":
@@ -307,6 +318,9 @@ class MainWindow {
   _updateUnreadCount(source, count) {
     const newCount = count ?? 0;
     switch (source) {
+      case "aistudio":
+        this.unreadCounts.aistudio = newCount;
+        break;
       case "chat":
         this.unreadCounts.chat = newCount;
         break;
