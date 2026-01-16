@@ -1,7 +1,7 @@
 import {
   app,
   BrowserWindow,
-  BrowserView,
+  WebContentsView,
   ipcMain,
   shell,
   Notification,
@@ -193,17 +193,26 @@ class MainWindow {
         backgroundThrottling: false,
       };
 
-      const view = new BrowserView({ webPreferences });
+      const view = new WebContentsView({ webPreferences });
+      view.setBackgroundColor("#00000000");
 
       if (isContent) {
         this.unreadCounts[config.id] = 0;
 
         const originalUserAgent = view.webContents.getUserAgent();
-        const cleanUserAgent = originalUserAgent.replace(
-          /Electron\/[0-9.]+\s/,
-          "",
-        );
-        view.webContents.setUserAgent(cleanUserAgent);
+
+        if (config.id === "aistudio") {
+          // AI Studio requires a modern, Chrome-like User-Agent to function correctly.
+          view.webContents.setUserAgent(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          );
+        } else {
+          const cleanUserAgent = originalUserAgent.replace(
+            /Electron\/[0-9.]+\s/,
+            "",
+          );
+          view.webContents.setUserAgent(cleanUserAgent);
+        }
 
         contextMenu({
           window: view,
@@ -222,7 +231,9 @@ class MainWindow {
   }
 
   _attachViews() {
-    Object.values(this.views).forEach((view) => this.win.addBrowserView(view));
+    Object.values(this.views).forEach((view) =>
+      this.win.contentView.addChildView(view),
+    );
   }
 
   _layoutViews() {
@@ -236,7 +247,6 @@ class MainWindow {
       width: menuConfig.width,
       height: bounds.height,
     });
-    this.views[menuConfig.id].setAutoResize({ height: true });
 
     const contentBounds = {
       x: menuConfig.width,
@@ -248,7 +258,6 @@ class MainWindow {
     Object.values(this.views).forEach((view) => {
       if (view !== this.views.menu) {
         view.setBounds(contentBounds);
-        view.setAutoResize({ width: true, height: true });
       }
     });
   }
@@ -276,7 +285,7 @@ class MainWindow {
     const targetView = this._getSafeView(lastTabId);
     if (lastTabId && targetView) {
       this.activeViewId = lastTabId;
-      this.win.setTopBrowserView(targetView);
+      this.win.contentView.addChildView(targetView);
     }
 
     this.views[VIEW_CONFIG.MENU.id].webContents.on("did-finish-load", () => {
@@ -351,7 +360,7 @@ class MainWindow {
 
       this.store.set("lastTab", tabId);
       this.activeViewId = tabId;
-      this.win.setTopBrowserView(targetView);
+      this.win.contentView.addChildView(targetView);
       targetView.webContents.focus();
     });
 
