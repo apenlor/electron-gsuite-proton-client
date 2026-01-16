@@ -199,11 +199,19 @@ class MainWindow {
         this.unreadCounts[config.id] = 0;
 
         const originalUserAgent = view.webContents.getUserAgent();
-        const cleanUserAgent = originalUserAgent.replace(
-          /Electron\/[0-9.]+\s/,
-          "",
-        );
-        view.webContents.setUserAgent(cleanUserAgent);
+
+        if (config.id === "aistudio") {
+          // AI Studio requires a modern, Chrome-like User-Agent to function correctly.
+          view.webContents.setUserAgent(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          );
+        } else {
+          const cleanUserAgent = originalUserAgent.replace(
+            /Electron\/[0-9.]+\s/,
+            "",
+          );
+          view.webContents.setUserAgent(cleanUserAgent);
+        }
 
         contextMenu({
           window: view,
