@@ -7,6 +7,7 @@ const IPC_API_CONTRACT = {
     "update-menu-badges",
     "update-menu-icon",
     "get-enabled-services",
+    "set-loading-state",
   ],
 };
 

@@ -4,11 +4,31 @@ This document provides instructions for AI agents working on this codebase. Adhe
 
 ## 1. Project Overview
 
-This is an Electron-based desktop client for Google Workspace applications (Gmail, Chat, Drive, AI Studio, etc.). It uses a multi-`BrowserView` architecture to isolate services and provide a seamless user experience. The main process is written in modern JavaScript (ESM) and manages the window, views, and IPC communication.
+This is an Electron-based desktop client for Google Workspace applications (Gmail, Calendar, Chat, Drive, AI Studio, etc.). It uses a multi-`BrowserView` architecture (specifically `WebContentsView` in newer versions) to isolate services and provide a seamless user experience. The main process is written in modern JavaScript (ESM) and manages the window, views, and IPC communication.
 
 The core logic is encapsulated within the `MainWindow` class in `main.js`. This class is responsible for all aspects of the application lifecycle, from window creation to IPC handling.
 
-## 2. Development Commands
+**Recent Improvements (v3.0.0):**
+
+- **Native Notifications:** Switched from custom proxying to browser-native notifications. Notifications for Gmail, Chat, and Calendar now leverage the OS native system directly via standard web APIs.
+- **Google Calendar Support:** Added as a core service, positioned immediately under Gmail.
+- **Lazy Loading:** Views load their URLs on-demand to speed up initial application startup.
+- **Keyboard Shortcuts:** `Cmd/Ctrl+1-6` for rapid switching between services.
+- **Zoom Persistence:** Zoom levels are remembered per service across sessions.
+- **Loading Indicators:** Visual feedback in the sidebar during service initialization.
+- **Performance:** Debounced favicon and badge updates to reduce IPC overhead.
+- **Robustness:** Added error boundaries for view creation and null checks for IPC.
+
+## 2. Directory Structure
+
+- **`main.js`**: The entry point and core logic (Main Process). Manages lifecycle, windows, views, and IPC.
+- **`menu.js`**: Defines the application menu template.
+- **`preload.js`**: Preload script for the internal "Menu" view (side navigation).
+- **`preload-web.js`**: Preload script for external content views (Gmail, Drive, etc.).
+- **`assets/`**: Contains icons and static resources.
+- **`release/`**: Output directory for build artifacts (created during build).
+
+## 3. Development Commands
 
 ### Running the Application
 
@@ -38,85 +58,84 @@ This project uses ESLint for linting and Prettier for formatting. A pre-commit h
 ### Testing
 
 - **No Automated Test Suite:** There is currently no automated test suite.
-- **Manual Testing is Critical:** All changes, especially those affecting the main process (`main.js`) or preload scripts, must be manually tested:
-  1. Run the application using `npm start`.
-  2. Verify that all services load and function correctly.
-  3. Check for regressions in core features (e.g., tab switching, notifications, unread badges).
-  4. Open the developer tools (via the "View" menu) to check for console errors.
+- **Manual Testing is Critical:** All changes must be manually verified.
+- **Single Feature Verification:**
+  - Since there are no unit tests, "running a single test" means manually exercising a specific feature.
+  - **Example:** If modifying the notification logic, start the app, trigger a notification (e.g., send an email to yourself), and verify the badge updates and system notification appears.
+- **Verification Checklist:**
+  1. Run `npm start`.
+  2. Verify all services (Gmail, Calendar, Chat, etc.) load without white screens.
+  3. Check developer console (View -> Toggle Developer Tools) for errors.
+  4. Verify IPC functionality (switching tabs, updating badges).
+  5. Test keyboard shortcuts (`Cmd/Ctrl+1-6`) for tab switching.
+  6. Verify zoom levels persist per service after restarting the app.
+  7. Confirm loading indicators appear when switching to a non-loaded service.
+  8. **Native Notifications:** Create a test event in Calendar and verify the system notification appears. Check `Notification.permission` is 'granted' in console for Google domains.
 
-## 3. Code Style Guidelines
+## 4. Code Style Guidelines
 
 ### Formatting
 
 - **Prettier:** The project is auto-formatted by Prettier. Adhere to its output.
-- **Line Length:** Aim for a maximum line length of 80-100 characters for readability.
+- **Line Length:** Aim for a maximum line length of 80-100 characters.
 - **Semicolons:** Use semicolons at the end of statements.
 
 ### Naming Conventions
 
 - **Variables/Functions:** Use `camelCase` (e.g., `mainWindow`, `createViews`).
 - **Classes:** Use `PascalCase` (e.g., `MainWindow`).
-- **Constants:** Use `UPPER_SNAKE_CASE` for top-level constants and configuration objects (e.g., `IPC_CHANNELS`, `VIEW_CONFIG`).
-- **Internal Methods:** Prefix internal class methods with an underscore `_` to indicate they are not for external use (e.g., `_createWindow`).
+- **Constants:** Use `UPPER_SNAKE_CASE` for top-level constants (e.g., `IPC_CHANNELS`).
+- **Internal Methods:** Prefix internal class methods with `_` (e.g., `_createWindow`).
 
 ### Imports and Modules
 
-- **ESM:** Use ES Modules (`import`/`export`) syntax exclusively. Do not use `require`.
-- **Import Grouping:** Group imports in the following order:
-  1. Electron built-in modules (`electron`).
-  2. Node.js built-in modules (`path`, `fs`).
-  3. External dependencies (`electron-store`).
-  4. Internal modules (`./menu.js`).
-- **Example Import Order:**
-  ```javascript
-  import { app, BrowserWindow } from "electron";
-  import path from "path";
-  import Store from "electron-store";
-  import { createMenu } from "./menu.js";
-  ```
+- **ESM:** Use ES Modules (`import`/`export`) exclusively.
+- **Import Grouping:**
+  1. Electron built-ins (`electron`)
+  2. Node.js built-ins (`path`, `fs`)
+  3. External dependencies (`electron-store`)
+  4. Internal modules (`./menu.js`)
 
 ### Types
 
-- **Plain JavaScript:** This is a plain JavaScript project. Do not add TypeScript or Flow type annotations.
-- **JSDoc (Optional):** For complex functions, you may add JSDoc comments to describe parameters, return values, and purpose.
+- **Plain JavaScript:** Do not add TypeScript or Flow types.
+- **JSDoc:** Use for complex functions to describe parameters and purpose.
 
 ### Error Handling
 
-- **Main Process:**
-  - For critical errors that prevent the app from starting (e.g., invalid preload script), `throw new Error()`.
-  - For non-critical, recoverable errors (e.g., a failed favicon fetch), log the error to the console using `console.error()` without crashing the application.
-- **Preload Scripts:** Use `try...catch` blocks for operations that might fail. Communicate errors back to the main process via IPC if the main process needs to be aware of them.
+- **Main Process:** `throw` critical errors; `console.error` recoverable ones.
+- **Preload Scripts:** Use `try...catch` and communicate via IPC.
 
 ### Comments
 
-- **Focus on "Why":** Write comments to explain _why_ a piece of code exists, especially for complex or non-obvious logic. Avoid explaining _what_ the code does, as the code itself should be clear.
-- **JSDoc:** Use for documenting function signatures as noted above.
+- **"Why" not "What":** Explain the reasoning behind complex logic.
+- **Do not** describe the code itself (e.g., "Loop through items").
 
-## 4. Architectural Patterns
+## 5. Architectural Patterns & Implementation Details
 
-- **IPC:** Inter-process communication is handled via `ipcMain` and `ipcRenderer`. Use the predefined channels in the `IPC_CHANNELS` constant.
-- **Configuration:** Static configuration (e.g., view URLs, preload scripts) is stored in the `VIEW_CONFIG` object in `main.js`.
-- **Persistence:** User settings and window state are persisted using `electron-store`. Access it via `this.store` in the `MainWindow` class.
-- **Key Dependencies:**
-  - `electron-store`: Handles persistent key-value storage for user settings and window state.
-  - `electron-updater`: Manages automatic application updates.
-  - `electron-context-menu`: Provides a default right-click context menu.
+- **IPC:** Handled via `ipcMain` and `ipcRenderer`. Use `IPC_CHANNELS`.
+- **Notifications:** The application uses browser-native notifications. Permission is granted to Google domains in `main.js`. Calendar uses Service Worker Push API (`showNotification`), while others use standard Web Notifications (`new Notification`).
+- **Configuration:** Static config in `VIEW_CONFIG`.
+- **Persistence:** `electron-store` used for `services` state and `windowBounds`.
+- **CSP Headers:** The application **intentionally removes** Content-Security-Policy headers (`x-frame-options`, `content-security-policy`) in `_setupSecurity`. This is required to allow embedding Google services in `BrowserView`s. **Do not restore these headers.**
+- **User Agent Spoofing:**
+  - AI Studio requires a modern Chrome User-Agent.
+  - Other views have the "Electron" string removed from their UA to prevent blocking.
 
-## 5. Security
+## 6. Security
 
-- **Context Isolation:** `contextIsolation` is enabled for all `BrowserView` instances.
-- **Sandbox:** The sandbox is enabled for all web content views (`isContent: true`).
-- **Preload Validation:** A `VALID_PRELOADS` set ensures that only approved preload scripts from the `VIEW_CONFIG` can be loaded.
-- **External Links:** Use `shell.openExternal()` to open links in the user's default browser. Do not open external content within the Electron application itself.
+- **Context Isolation:** Enabled for all views (`contextIsolation: true`).
+- **Sandbox:** Enabled for content views (`sandbox: true`).
+- **Preload Validation:** `VALID_PRELOADS` ensures only authorized scripts run.
+- **External Links:** Must be opened via `shell.openExternal()`.
 
-## 6. Commit Messages
+## 7. Commit Messages
 
-- **Conventional Commits:** Use the Conventional Commits specification for all commit messages. This helps maintain a clear and automated version history.
-- **Format:** `<type>(<scope>): <subject>`
-  - **`feat`**: A new feature.
-  - **`fix`**: A bug fix.
-  - **`refactor`**: A code change that neither fixes a bug nor adds a feature.
-  - **`style`**: Changes that do not affect the meaning of the code (formatting).
-  - **`chore`**: Changes to the build process or auxiliary tools.
-  - **`docs`**: Documentation only changes.
+- **Conventional Commits:** `<type>(<scope>): <subject>`
+  - `feat`: New feature
+  - `fix`: Bug fix
+  - `refactor`: Code restructuring
+  - `style`: Formatting changes
+  - `chore`: Build/tooling changes
+  - `docs`: Documentation
 - **Example:** `feat(gmail): add support for unread count badge`

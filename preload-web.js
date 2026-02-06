@@ -2,111 +2,47 @@ const { ipcRenderer, contextBridge } = require("electron");
 
 // --- Contract Definition ---
 const IPC_CHANNELS = {
-  SHOW_NOTIFICATION: "show-notification",
   UPDATE_BADGE: "update-badge",
   UPDATE_FAVICON: "update-favicon",
 };
 
-// --- 1. Secure Bridge ---
+// --- Secure Bridge for Main World ---
 contextBridge.exposeInMainWorld("gsuiteBridge", {
-  triggerNotification: (data) => {
-    ipcRenderer.send(IPC_CHANNELS.SHOW_NOTIFICATION, data);
-  },
+  focusCalendar: () => ipcRenderer.send("switch-tab", "calendar"),
 });
 
-// --- 2. Main World Injection ---
-function injectNotificationProxy() {
-  const scriptContent = `
-    (function() {
-      try {
-        // --- A. Mock Permissions API ---
-        if (navigator.permissions && navigator.permissions.query) {
-          const originalQuery = navigator.permissions.query;
-          navigator.permissions.query = (parameters) => {
-            if (parameters.name === 'notifications') {
-              return Promise.resolve({
-                state: 'granted',
-                onchange: null,
-                addEventListener: () => {},
-                removeEventListener: () => {},
-                dispatchEvent: () => false
-              });
-            }
-            return originalQuery(parameters);
-          };
-        }
-
-        // --- B. Class-based Notification Proxy ---
-        const OriginalNotification = window.Notification;
-
-        class GSuiteNotification extends OriginalNotification {
-          constructor(title, options) {
-            if (window.gsuiteBridge) {
-              window.gsuiteBridge.triggerNotification({
-                title,
-                body: options?.body,
-              });
-            }
-            super(title, { ...options, silent: true });
-          }
-        }
-
-        Object.defineProperty(GSuiteNotification, 'permission', {
-          get: () => 'granted',
-          configurable: true
-        });
-        GSuiteNotification.requestPermission = async () => 'granted';
-        window.Notification = GSuiteNotification;
-
-      } catch (e) {
-        // Ignore injection errors
-      }
-    })();
-  `;
-
-  // --- C. Injection Mechanism ---
-  const attemptInjection = () => {
-    const target = document.head || document.documentElement;
-    if (target) {
-      try {
-        const script = document.createElement("script");
-        script.textContent = scriptContent;
-        target.appendChild(script);
-        script.remove();
-        return true;
-      } catch {
-        // Ignore DOM errors
-      }
-    }
-    return false;
+// --- Logic for Isolated World (Favicons/Badges) ---
+// Utility: Debounce function to limit rate of execution
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
   };
-
-  if (!attemptInjection()) {
-    const observer = new MutationObserver((mutations, obs) => {
-      if (attemptInjection()) {
-        obs.disconnect();
-      }
-    });
-    observer.observe(document, { childList: true, subtree: true });
-  }
 }
 
-// Run immediately
-injectNotificationProxy();
-
-// --- 3. Logic for Isolated World (Favicons/Badges) ---
 let lastFaviconUrl = "";
 let lastBadgeCount = -1;
 
 function getSourceId() {
   const href = window.location.href;
   if (href.includes("aistudio.google.com")) return "aistudio";
+  if (href.includes("calendar.google.com")) return "calendar";
   if (href.includes("mail.google.com/chat")) return "chat";
   if (href.includes("drive.google.com")) return "drive";
   if (href.includes("tasks.google.com")) return "tasks";
   return "gmail";
 }
 
+/**
+ * Monitors DOM mutations to detect favicon changes.
+ * Sends updated favicon URLs to main process for display in the sidebar menu.
+ * @param {string} sourceId - The service identifier (gmail, chat, drive, etc.)
+ */
 function observeFaviconChanges(sourceId) {
   const headElement = document.querySelector("head");
   if (!headElement) return;
@@ -124,7 +60,10 @@ function observeFaviconChanges(sourceId) {
     }
   };
 
-  const observer = new MutationObserver(checkAndSend);
+  // Debounce to prevent excessive IPC calls during rapid DOM changes
+  const debouncedCheck = debounce(checkAndSend, 500);
+
+  const observer = new MutationObserver(debouncedCheck);
   observer.observe(headElement, {
     childList: true,
     subtree: true,
@@ -134,6 +73,11 @@ function observeFaviconChanges(sourceId) {
   checkAndSend();
 }
 
+/**
+ * Observes Gmail page title for unread count indicator.
+ * Parses "(N)" pattern from document.title and sends count via IPC.
+ * Gmail-specific feature; other services use different badge mechanisms.
+ */
 function observeGmailBadge() {
   const titleElement = document.querySelector("head > title");
   if (!titleElement) return;
@@ -155,11 +99,115 @@ function observeGmailBadge() {
   checkAndSend();
 }
 
+/**
+ * Intercepts Service Worker notifications for Google Calendar.
+ * This injects a script into the Main World to bypass Isolated World restrictions.
+ */
+function interceptCalendarServiceWorker() {
+  const scriptContent = `
+    (function() {
+      function patchShowNotification(registration) {
+        if (!registration || registration.__patched) return;
+        registration.__patched = true;
+
+        const originalShow = registration.showNotification.bind(registration);
+        registration.showNotification = function(title, options) {
+          try {
+            const notification = new Notification(title, options || {});
+            notification.onclick = () => {
+              if (window.gsuiteBridge) window.gsuiteBridge.focusCalendar();
+            };
+          } catch (e) {
+            console.error('[Calendar] Main World Notification failed:', e);
+          }
+          return originalShow(title, options);
+        };
+      }
+
+      // 1. Intercept future registrations
+      const originalRegister = navigator.serviceWorker.register.bind(navigator.serviceWorker);
+      navigator.serviceWorker.register = async function(...args) {
+        const registration = await originalRegister(...args);
+        patchShowNotification(registration);
+        return registration;
+      };
+
+      // 2. Patch existing registrations
+      if (navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready.then(patchShowNotification).catch(() => {});
+      }
+      
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(patchShowNotification);
+      }).catch(() => {});
+    })();
+  `;
+
+  try {
+    const script = document.createElement("script");
+    script.textContent = scriptContent;
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+  } catch (e) {
+    console.error("[Calendar] Failed to inject interception script:", e);
+  }
+
+  // Also enable the fallback detector in the Isolated World
+  enableFallbackNotificationDetector();
+}
+
+function enableFallbackNotificationDetector() {
+  let lastNotificationTime = 0;
+  const DEBOUNCE_MS = 5000;
+
+  document.addEventListener(
+    "play",
+    (e) => {
+      if (
+        e.target.tagName === "AUDIO" &&
+        Date.now() - lastNotificationTime > DEBOUNCE_MS
+      ) {
+        lastNotificationTime = Date.now();
+        showGenericCalendarNotification();
+      }
+    },
+    true,
+  );
+
+  const titleObserver = new MutationObserver(() => {
+    const hasEventIndicator = /\(\d+\)/.test(document.title);
+    if (hasEventIndicator && Date.now() - lastNotificationTime > DEBOUNCE_MS) {
+      lastNotificationTime = Date.now();
+      showGenericCalendarNotification();
+    }
+  });
+
+  const titleElement = document.querySelector("title");
+  if (titleElement) {
+    titleObserver.observe(titleElement, { childList: true });
+  }
+}
+
+function showGenericCalendarNotification() {
+  const notification = new Notification("📅 Calendar Event", {
+    body: "You have a calendar reminder - check your calendar",
+    icon: "https://calendar.google.com/googlecalendar/images/favicons_2020q4/calendar_18.ico",
+    tag: "calendar-generic",
+  });
+  notification.onclick = () => {
+    ipcRenderer.send("switch-tab", "calendar");
+  };
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const sourceId = getSourceId();
   observeFaviconChanges(sourceId);
 
   if (sourceId === "gmail") {
     observeGmailBadge();
+  }
+
+  if (sourceId === "calendar") {
+    interceptCalendarServiceWorker();
   }
 });

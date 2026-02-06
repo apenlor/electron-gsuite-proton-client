@@ -4,7 +4,6 @@ import {
   WebContentsView,
   ipcMain,
   shell,
-  Notification,
   net,
   Menu,
   MenuItem,
@@ -23,17 +22,21 @@ import contextMenu from "electron-context-menu";
 const IPC_CHANNELS = {
   SWITCH_TAB: "switch-tab",
   UPDATE_BADGE: "update-badge",
-  SHOW_NOTIFICATION: "show-notification",
   SET_ACTIVE_TAB: "set-active-tab",
   UPDATE_MENU_BADGES: "update-menu-badges",
   UPDATE_FAVICON: "update-favicon",
   UPDATE_MENU_ICON: "update-menu-icon",
   SHOW_CONTEXT_MENU: "show-context-menu",
   GET_ENABLED_SERVICES: "get-enabled-services",
+  SET_LOADING_STATE: "set-loading-state",
+};
+
+const LAYOUT_CONSTANTS = {
+  MENU_WIDTH: 80,
 };
 
 const VIEW_CONFIG = {
-  MENU: { id: "menu", width: 80, preload: "preload.js", isContent: false },
+  MENU: { id: "menu", preload: "preload.js", isContent: false },
   AISTUDIO: {
     id: "aistudio",
     title: "AI Studio",
@@ -47,6 +50,14 @@ const VIEW_CONFIG = {
     title: "Gmail",
     icon: "assets/default/gmail.png",
     url: "https://mail.google.com/mail/u/0/",
+    preload: "preload-web.js",
+    isContent: true,
+  },
+  CALENDAR: {
+    id: "calendar",
+    title: "Calendar",
+    icon: "assets/default/calendar.png",
+    url: "https://calendar.google.com/calendar/u/0/r",
     preload: "preload-web.js",
     isContent: true,
   },
@@ -80,6 +91,8 @@ const VALID_PRELOADS = new Set(
   Object.values(VIEW_CONFIG).map((c) => c.preload),
 );
 
+const VALID_VIEW_IDS = new Set(Object.values(VIEW_CONFIG).map((c) => c.id));
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageJson = JSON.parse(
@@ -87,28 +100,33 @@ const packageJson = JSON.parse(
 );
 
 class MainWindow {
+  static VIEW_CONFIG = VIEW_CONFIG;
+
   constructor() {
     this.store = new Store();
     this.win = null;
-    this.views = {};
+    this.views = new Map();
     this.activeViewId = null;
-    this.unreadCounts = {};
-    this.activeNotifications = new Set();
+    this.unreadCounts = new Map();
+    this.loadedViews = new Set();
 
     // Load persistence state (Default: all enabled)
     this.enabledServices = this.store.get("services", {
       aistudio: true,
-      chat: true,
       gmail: true,
+      calendar: true,
+      chat: true,
       drive: true,
       tasks: true,
     });
 
-    this.notificationConfig = this.store.get("notificationConfig", {
-      showContent: true,
-    });
+    this.zoomLevels = this.store.get("zoomLevels", {});
   }
 
+  /**
+   * Initializes and displays the main application window.
+   * Orchestrates window creation, view setup, IPC handlers, and auto-updater.
+   */
   create() {
     this._createWindow();
     this._setupSecurity();
@@ -143,12 +161,12 @@ class MainWindow {
     this.win.on("resize", () => this._layoutViews());
 
     this.win.on("blur", () => {
-      const activeView = this.views[this.activeViewId];
+      const activeView = this.views.get(this.activeViewId);
       activeView?.webContents.executeJavaScript("window.blur()", true);
     });
 
     this.win.on("focus", () => {
-      const activeView = this.views[this.activeViewId];
+      const activeView = this.views.get(this.activeViewId);
       activeView?.webContents.focus();
     });
   }
@@ -156,11 +174,28 @@ class MainWindow {
   _setupSecurity() {
     const session = this.win.webContents.session;
 
-    session.setPermissionRequestHandler((webContents, permission, callback) => {
-      // Deny notifications to avoid duplicates (handled via IPC)
-      const allowedPermissions = new Set(["media"]);
-      callback(allowedPermissions.has(permission));
-    });
+    session.setPermissionRequestHandler(
+      (webContents, permission, callback, details) => {
+        if (permission === "notifications") {
+          const url = details.requestingUrl || webContents.getURL();
+          const googleDomains = [
+            "https://mail.google.com",
+            "https://calendar.google.com",
+            "https://chat.google.com",
+            "https://aistudio.google.com",
+            "https://tasks.google.com",
+          ];
+          const isGoogleDomain = googleDomains.some((domain) =>
+            url.startsWith(domain),
+          );
+          return callback(isGoogleDomain);
+        }
+
+        // Allow media (camera/microphone)
+        const allowedPermissions = new Set(["media"]);
+        callback(allowedPermissions.has(permission));
+      },
+    );
 
     session.webRequest.onHeadersReceived((details, callback) => {
       const responseHeaders = { ...details.responseHeaders };
@@ -172,131 +207,177 @@ class MainWindow {
     });
   }
 
+  /**
+   * Creates BrowserView instances for all enabled services.
+   * Each view is isolated with its own preload script and security settings.
+   * Handles user-agent spoofing for AI Studio compatibility.
+   * @throws {Error} Critical error if preload validation fails (security)
+   */
   _createViews() {
     Object.values(VIEW_CONFIG).forEach((config) => {
-      // 1. Security Check
-      if (!VALID_PRELOADS.has(config.preload)) {
-        throw new Error(`[Security] Invalid preload: ${config.preload}`);
-      }
-
-      // 2. Skip Disabled Services
-      if (config.isContent && !this.enabledServices[config.id]) {
-        return;
-      }
-
-      const isContent = config.isContent;
-      const webPreferences = {
-        preload: path.join(__dirname, config.preload),
-        contextIsolation: true,
-        sandbox: isContent,
-        nodeIntegration: !isContent,
-        backgroundThrottling: false,
-      };
-
-      const view = new WebContentsView({ webPreferences });
-      view.setBackgroundColor("#00000000");
-
-      if (isContent) {
-        this.unreadCounts[config.id] = 0;
-
-        const originalUserAgent = view.webContents.getUserAgent();
-
-        if (config.id === "aistudio") {
-          // AI Studio requires a modern, Chrome-like User-Agent to function correctly.
-          view.webContents.setUserAgent(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          );
-        } else {
-          const cleanUserAgent = originalUserAgent.replace(
-            /Electron\/[0-9.]+\s/,
-            "",
-          );
-          view.webContents.setUserAgent(cleanUserAgent);
+      try {
+        // 1. Security Check
+        if (!VALID_PRELOADS.has(config.preload)) {
+          throw new Error(`[Security] Invalid preload: ${config.preload}`);
         }
 
-        contextMenu({
-          window: view,
-          showInspectElement: true,
-          showSaveImageAs: false,
-          showCopyImageAddress: false,
-        });
-        view.webContents.setWindowOpenHandler(({ url }) => {
-          shell.openExternal(url);
-          return { action: "deny" };
-        });
-      }
+        // 2. Skip Disabled Services
+        if (config.isContent && !this.enabledServices[config.id]) {
+          return;
+        }
 
-      this.views[config.id] = view;
+        const isContent = config.isContent;
+        const webPreferences = {
+          preload: path.join(__dirname, config.preload),
+          contextIsolation: true,
+          sandbox: isContent,
+          nodeIntegration: !isContent,
+          backgroundThrottling: false,
+        };
+
+        const view = new WebContentsView({ webPreferences });
+        view.setBackgroundColor("#00000000");
+
+        if (isContent) {
+          this.unreadCounts.set(config.id, 0);
+
+          const originalUserAgent = view.webContents.getUserAgent();
+
+          if (config.id === "aistudio") {
+            // AI Studio requires a modern, Chrome-like User-Agent to function correctly.
+            view.webContents.setUserAgent(
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            );
+          } else {
+            const cleanUserAgent = originalUserAgent.replace(
+              /Electron\/[0-9.]+\s/,
+              "",
+            );
+            view.webContents.setUserAgent(cleanUserAgent);
+          }
+
+          contextMenu({
+            window: view,
+            showInspectElement: true,
+            showSaveImageAs: false,
+            showCopyImageAddress: false,
+            append: (defaultActions, params) => [
+              {
+                label: "Open in Browser",
+                visible: params.linkURL || params.pageURL,
+                click: () => {
+                  const url = params.linkURL || params.pageURL;
+                  if (url) shell.openExternal(url);
+                },
+              },
+            ],
+          });
+          view.webContents.setWindowOpenHandler(({ url }) => {
+            shell.openExternal(url);
+            return { action: "deny" };
+          });
+
+          // Restore saved zoom level
+          view.webContents.on("did-finish-load", () => {
+            const savedZoom = this.zoomLevels[config.id];
+            if (savedZoom !== undefined) {
+              view.webContents.setZoomFactor(savedZoom);
+            }
+          });
+
+          // Save zoom level changes
+          view.webContents.on("zoom-changed", (event, zoomDirection) => {
+            const currentZoom = view.webContents.getZoomFactor();
+            const newZoom =
+              zoomDirection === "in"
+                ? Math.min(currentZoom + 0.1, 3.0)
+                : Math.max(currentZoom - 0.1, 0.5);
+            view.webContents.setZoomFactor(newZoom);
+            this.zoomLevels[config.id] = newZoom;
+            this.store.set("zoomLevels", this.zoomLevels);
+          });
+        }
+
+        this.views.set(config.id, view);
+      } catch (error) {
+        console.error(
+          `[MainWindow] Failed to create view "${config.id}":`,
+          error.message,
+        );
+        // Continue with other views instead of crashing
+      }
     });
   }
 
   _attachViews() {
-    Object.values(this.views).forEach((view) =>
-      this.win.contentView.addChildView(view),
-    );
+    this.views.forEach((view) => this.win.contentView.addChildView(view));
   }
 
   _layoutViews() {
     if (!this.win) return;
     const bounds = this.win.getBounds();
-    const menuConfig = VIEW_CONFIG.MENU;
 
-    this.views[menuConfig.id].setBounds({
-      x: 0,
-      y: 0,
-      width: menuConfig.width,
-      height: bounds.height,
-    });
+    const menuView = this.views.get(VIEW_CONFIG.MENU.id);
+    if (menuView) {
+      menuView.setBounds({
+        x: 0,
+        y: 0,
+        width: LAYOUT_CONSTANTS.MENU_WIDTH,
+        height: bounds.height,
+      });
+    }
 
     const contentBounds = {
-      x: menuConfig.width,
+      x: LAYOUT_CONSTANTS.MENU_WIDTH,
       y: 0,
-      width: bounds.width - menuConfig.width,
+      width: bounds.width - LAYOUT_CONSTANTS.MENU_WIDTH,
       height: bounds.height,
     };
 
-    Object.values(this.views).forEach((view) => {
-      if (view !== this.views.menu) {
+    this.views.forEach((view, id) => {
+      if (id !== VIEW_CONFIG.MENU.id) {
         view.setBounds(contentBounds);
       }
     });
   }
 
   _loadInitialContent() {
-    this.views[VIEW_CONFIG.MENU.id].webContents.loadFile(
-      path.join(__dirname, "menu.html"),
-    );
+    const menuView = this.views.get(VIEW_CONFIG.MENU.id);
+    if (!menuView) return;
 
-    Object.values(VIEW_CONFIG)
-      .filter((c) => c.isContent && this.views[c.id])
-      .forEach((config) => {
-        this.views[config.id].webContents.loadURL(config.url);
-      });
+    // Always load menu view
+    menuView.webContents.loadFile(path.join(__dirname, "menu.html"));
 
+    // Determine initial active tab
     let lastTabId = this.store.get("lastTab", VIEW_CONFIG.GMAIL.id);
 
     if (!this._getSafeView(lastTabId)) {
-      const firstAvailable = Object.keys(this.views).find(
-        (id) => id !== "menu",
-      );
+      const firstAvailable = [...this.views.keys()].find((id) => id !== "menu");
       lastTabId = firstAvailable || null;
     }
 
-    const targetView = this._getSafeView(lastTabId);
-    if (lastTabId && targetView) {
-      this.activeViewId = lastTabId;
-      this.win.contentView.addChildView(targetView);
+    // Load only the active view initially (lazy loading)
+    if (lastTabId) {
+      const targetView = this._getSafeView(lastTabId);
+      if (targetView) {
+        const config = Object.values(VIEW_CONFIG).find(
+          (c) => c.id === lastTabId,
+        );
+        if (config?.url) {
+          targetView.webContents.loadURL(config.url);
+          this.loadedViews.add(lastTabId);
+        }
+        this.activeViewId = lastTabId;
+        this.win.contentView.addChildView(targetView);
+      }
     }
 
-    this.views[VIEW_CONFIG.MENU.id].webContents.on("did-finish-load", () => {
-      this.views[VIEW_CONFIG.MENU.id].webContents.send(
-        IPC_CHANNELS.GET_ENABLED_SERVICES,
-        {
-          activeId: this.activeViewId,
-          services: this.enabledServices,
-          config: VIEW_CONFIG,
-        },
-      );
+    menuView.webContents.on("did-finish-load", () => {
+      menuView.webContents.send(IPC_CHANNELS.GET_ENABLED_SERVICES, {
+        activeId: this.activeViewId,
+        services: this.enabledServices,
+        config: VIEW_CONFIG,
+      });
     });
   }
 
@@ -306,113 +387,96 @@ class MainWindow {
   }
 
   _getSafeView(id) {
-    switch (id) {
-      case "menu":
-        return this.views.menu;
-      case "aistudio":
-        return this.views.aistudio;
-      case "chat":
-        return this.views.chat;
-      case "gmail":
-        return this.views.gmail;
-      case "drive":
-        return this.views.drive;
-      case "tasks":
-        return this.views.tasks;
-      default:
-        return undefined;
+    if (!VALID_VIEW_IDS.has(id)) return undefined;
+    return this.views.get(id);
+  }
+
+  _switchToTab(tabId) {
+    const targetView = this._getSafeView(tabId);
+    if (!targetView) return;
+
+    // Show loading state
+    this._sendToMenu(IPC_CHANNELS.SET_LOADING_STATE, {
+      serviceId: tabId,
+      loading: true,
+    });
+
+    // Lazy load view if not yet loaded
+    if (!this.loadedViews.has(tabId)) {
+      const config = Object.values(VIEW_CONFIG).find((c) => c.id === tabId);
+      if (config?.url) {
+        targetView.webContents.loadURL(config.url);
+        this.loadedViews.add(tabId);
+
+        // Hide loading state when view finishes loading
+        targetView.webContents.once("did-finish-load", () => {
+          this._sendToMenu(IPC_CHANNELS.SET_LOADING_STATE, {
+            serviceId: tabId,
+            loading: false,
+          });
+        });
+      }
+    } else {
+      // Already loaded, hide loading state immediately
+      this._sendToMenu(IPC_CHANNELS.SET_LOADING_STATE, {
+        serviceId: tabId,
+        loading: false,
+      });
     }
+
+    const currentView = this._getSafeView(this.activeViewId);
+    if (this.activeViewId && currentView) {
+      currentView.webContents.executeJavaScript("window.blur()", true);
+    }
+
+    this.store.set("lastTab", tabId);
+    this.activeViewId = tabId;
+    this.win.contentView.addChildView(targetView);
+    targetView.webContents.focus();
+
+    // Update menu state
+    this._sendToMenu(IPC_CHANNELS.SET_ACTIVE_TAB, tabId);
   }
 
   _updateUnreadCount(source, count) {
+    if (!VALID_VIEW_IDS.has(source)) return;
     const newCount = count ?? 0;
-    switch (source) {
-      case "aistudio":
-        this.unreadCounts.aistudio = newCount;
-        break;
-      case "chat":
-        this.unreadCounts.chat = newCount;
-        break;
-      case "gmail":
-        this.unreadCounts.gmail = newCount;
-        break;
-      case "drive":
-        this.unreadCounts.drive = newCount;
-        break;
-      case "tasks":
-        this.unreadCounts.tasks = newCount;
-        break;
-      default:
-        // Ignore invalid sources
-        break;
+    if (this.unreadCounts.has(source)) {
+      this.unreadCounts.set(source, newCount);
     }
   }
 
+  _sendToMenu(channel, data) {
+    const menuView = this.views.get(VIEW_CONFIG.MENU.id);
+    if (menuView?.webContents) {
+      menuView.webContents.send(channel, data);
+    }
+  }
+
+  /**
+   * Registers all IPC communication handlers between renderer and main process.
+   * Handles: tab switching, badge updates, notifications, favicon updates, and context menu.
+   */
   _setupIpcHandlers() {
     ipcMain.on(IPC_CHANNELS.SWITCH_TAB, (event, tabId) => {
-      const targetView = this._getSafeView(tabId);
-      if (!targetView) return;
-
-      const currentView = this._getSafeView(this.activeViewId);
-      if (this.activeViewId && currentView) {
-        currentView.webContents.executeJavaScript("window.blur()", true);
-      }
-
-      this.store.set("lastTab", tabId);
-      this.activeViewId = tabId;
-      this.win.contentView.addChildView(targetView);
-      targetView.webContents.focus();
+      this._switchToTab(tabId);
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_BADGE, (event, { count, source }) => {
       this._updateUnreadCount(source, count);
-      const total = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
+      const total = [...this.unreadCounts.values()].reduce((a, b) => a + b, 0);
       app.setBadgeCount(total);
-      if (this.views.menu) {
-        this.views.menu.webContents.send(
-          IPC_CHANNELS.UPDATE_MENU_BADGES,
-          this.unreadCounts,
-        );
-      }
-    });
-
-    ipcMain.on(IPC_CHANNELS.SHOW_NOTIFICATION, (event, { title, body }) => {
-      if (Notification.isSupported()) {
-        const showContent = this.store.get(
-          "notificationConfig.showContent",
-          true,
-        );
-        // If content is hidden, use generic text. Otherwise use original.
-        const safeTitle = showContent
-          ? title || "GSuite Client"
-          : "New Message";
-        const safeBody = showContent
-          ? body || "New notification"
-          : "You have a new message";
-
-        const notification = new Notification({
-          title: safeTitle,
-          body: safeBody,
-          icon: path.join(__dirname, "assets/icon.png"),
-          silent: true,
-        });
-        this.activeNotifications.add(notification);
-        notification.on("close", () =>
-          this.activeNotifications.delete(notification),
-        );
-        notification.on("click", () => {
-          this.win?.focus();
-          this.activeNotifications.delete(notification);
-        });
-        notification.show();
-      }
+      this._sendToMenu(
+        IPC_CHANNELS.UPDATE_MENU_BADGES,
+        Object.fromEntries(this.unreadCounts),
+      );
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_FAVICON, (event, { source, faviconUrl }) => {
-      if (!faviconUrl || !this.views.menu) return;
+      if (!faviconUrl) return;
 
       if (faviconUrl.startsWith("data:")) {
-        this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+        this._sendToMenu(IPC_CHANNELS.UPDATE_MENU_ICON, {
           source,
           dataUrl: faviconUrl,
         });
@@ -428,7 +492,7 @@ class MainWindow {
           response.on("end", () => {
             const buffer = Buffer.concat(chunks);
             const dataUrl = `data:${response.headers["content-type"]};base64,${buffer.toString("base64")}`;
-            this.views.menu.webContents.send(IPC_CHANNELS.UPDATE_MENU_ICON, {
+            this._sendToMenu(IPC_CHANNELS.UPDATE_MENU_ICON, {
               source,
               dataUrl,
             });
@@ -469,20 +533,6 @@ class MainWindow {
         });
 
       menu.append(new MenuItem({ type: "separator" }));
-      menu.append(new MenuItem({ label: "Notifications", enabled: false }));
-      menu.append(new MenuItem({ type: "separator" }));
-
-      menu.append(
-        new MenuItem({
-          label: "Show Content",
-          type: "checkbox",
-          checked: this.notificationConfig.showContent,
-          click: (menuItem) => {
-            this.notificationConfig.showContent = menuItem.checked;
-            this.store.set("notificationConfig", this.notificationConfig);
-          },
-        }),
-      );
 
       menu.popup({ window: this.win });
     });
@@ -500,6 +550,8 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+
+app.on("before-quit", () => {});
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
