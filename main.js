@@ -91,6 +91,8 @@ const VALID_PRELOADS = new Set(
   Object.values(VIEW_CONFIG).map((c) => c.preload),
 );
 
+const VALID_VIEW_IDS = new Set(Object.values(VIEW_CONFIG).map((c) => c.id));
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageJson = JSON.parse(
@@ -386,6 +388,7 @@ class MainWindow {
   }
 
   _getSafeView(id) {
+    if (!VALID_VIEW_IDS.has(id)) return undefined;
     return this.views[id];
   }
 
@@ -437,6 +440,7 @@ class MainWindow {
   }
 
   _updateUnreadCount(source, count) {
+    if (!VALID_VIEW_IDS.has(source)) return;
     const newCount = count ?? 0;
     if (Object.prototype.hasOwnProperty.call(this.unreadCounts, source)) {
       this.unreadCounts[source] = newCount;
