@@ -150,17 +150,6 @@ class MainWindow {
     const appMenu = createMenu(this);
     Menu.setApplicationMenu(appMenu);
 
-    // Listen for menu-triggered tab switches from keyboard shortcuts
-    this.win.webContents.on("ipc-message", (event, channel, tabId) => {
-      if (channel === "switch-tab") {
-        const targetView = this._getSafeView(tabId);
-        if (targetView && this.enabledServices[tabId] !== false) {
-          // Trigger the same handler as the menu IPC
-          this._switchToTab(tabId);
-        }
-      }
-    });
-
     this.win.on("resized", () =>
       this.store.set("windowBounds", this.win.getBounds()),
     );

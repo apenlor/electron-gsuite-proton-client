@@ -87,28 +87,27 @@ export function createMenu(mainWindow) {
         {
           label: "Gmail",
           accelerator: "CmdOrCtrl+1",
-          click: () => mainWindow?.win?.webContents.send("switch-tab", "gmail"),
+          click: () => mainWindow?._switchToTab("gmail"),
         },
         {
           label: "Google Chat",
           accelerator: "CmdOrCtrl+2",
-          click: () => mainWindow?.win?.webContents.send("switch-tab", "chat"),
+          click: () => mainWindow?._switchToTab("chat"),
         },
         {
           label: "AI Studio",
           accelerator: "CmdOrCtrl+3",
-          click: () =>
-            mainWindow?.win?.webContents.send("switch-tab", "aistudio"),
+          click: () => mainWindow?._switchToTab("aistudio"),
         },
         {
           label: "Google Tasks",
           accelerator: "CmdOrCtrl+4",
-          click: () => mainWindow?.win?.webContents.send("switch-tab", "tasks"),
+          click: () => mainWindow?._switchToTab("tasks"),
         },
         {
           label: "Google Drive",
           accelerator: "CmdOrCtrl+5",
-          click: () => mainWindow?.win?.webContents.send("switch-tab", "drive"),
+          click: () => mainWindow?._switchToTab("drive"),
         },
         { type: "separator" },
         { role: "resetZoom" },
