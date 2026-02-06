@@ -174,26 +174,28 @@ class MainWindow {
   _setupSecurity() {
     const session = this.win.webContents.session;
 
-    session.setPermissionRequestHandler((webContents, permission, callback) => {
-      if (permission === "notifications") {
-        const url = webContents.getURL();
-        const googleDomains = [
-          "https://mail.google.com",
-          "https://calendar.google.com",
-          "https://chat.google.com",
-          "https://aistudio.google.com",
-          "https://tasks.google.com",
-        ];
-        const isGoogleDomain = googleDomains.some((domain) =>
-          url.startsWith(domain),
-        );
-        return callback(isGoogleDomain);
-      }
+    session.setPermissionRequestHandler(
+      (webContents, permission, callback, details) => {
+        if (permission === "notifications") {
+          const url = details.requestingUrl || webContents.getURL();
+          const googleDomains = [
+            "https://mail.google.com",
+            "https://calendar.google.com",
+            "https://chat.google.com",
+            "https://aistudio.google.com",
+            "https://tasks.google.com",
+          ];
+          const isGoogleDomain = googleDomains.some((domain) =>
+            url.startsWith(domain),
+          );
+          return callback(isGoogleDomain);
+        }
 
-      // Allow media (camera/microphone)
-      const allowedPermissions = new Set(["media"]);
-      callback(allowedPermissions.has(permission));
-    });
+        // Allow media (camera/microphone)
+        const allowedPermissions = new Set(["media"]);
+        callback(allowedPermissions.has(permission));
+      },
+    );
 
     session.webRequest.onHeadersReceived((details, callback) => {
       const responseHeaders = { ...details.responseHeaders };
