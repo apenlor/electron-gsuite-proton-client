@@ -4,7 +4,7 @@
 [![Build & Release](https://github.com/apenlor/electron-gsuite-client/actions/workflows/build.yml/badge.svg)](https://github.com/apenlor/electron-gsuite-client/actions)
 [![Latest Release](https://img.shields.io/github/v/release/apenlor/electron-gsuite-client)](https://github.com/apenlor/electron-gsuite-client/releases/latest)
 
-A native, cross-platform desktop client for Google Workspace, consolidating Gmail, Chat, Tasks, Drive and AI Studio into a single, seamless application. Built with Electron **(just for fun)**
+A native, cross-platform desktop client for Google Workspace, consolidating Gmail, Calendar, Chat, Tasks, Drive and AI Studio into a single, seamless application. Built with Electron **(just for fun)**
 
 ![Application Screenshot](assets/img/snapshot.png)
 _The application running on macOS, showing the Gmail view._
@@ -13,11 +13,11 @@ _The application running on macOS, showing the Gmail view._
 
 ## Features
 
-- **Unified Interface:** Access Gmail, Google Chat, AI Studio and Google Drive from a single, clean side-menu.
+- **Unified Interface:** Access Gmail, Google Calendar, Google Chat, AI Studio and Google Drive from a single, clean side-menu.
 - **Customizable Workspace:** Right-click the sidebar to enable or disable specific services (e.g., hide Drive if you only use Chat). Settings are persisted automatically.
 - **Native OS Integration:**
   - Dock/Taskbar badge for a combined total of unread message counts.
-  - Native OS notifications for new messages and emails.
+  - Native OS notifications for new messages, emails, and calendar events (browser-native strategy).
   - Standard application menu (`File`, `Edit`, `View`) with familiar keyboard shortcuts (`Cmd/Ctrl+R` for Reload, etc.).
 - **Dynamic UI:** The menu icons dynamically update to reflect the real-time status of each service by proxying the official favicons.
 - **State Persistence:** Remembers your window size, position, active tab, and enabled services between sessions.
