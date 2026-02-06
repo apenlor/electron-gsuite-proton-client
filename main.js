@@ -105,9 +105,9 @@ class MainWindow {
   constructor() {
     this.store = new Store();
     this.win = null;
-    this.views = {};
+    this.views = new Map();
     this.activeViewId = null;
-    this.unreadCounts = {};
+    this.unreadCounts = new Map();
     this.loadedViews = new Set();
 
     // Load persistence state (Default: all enabled)
@@ -161,12 +161,12 @@ class MainWindow {
     this.win.on("resize", () => this._layoutViews());
 
     this.win.on("blur", () => {
-      const activeView = this.views[this.activeViewId];
+      const activeView = this.views.get(this.activeViewId);
       activeView?.webContents.executeJavaScript("window.blur()", true);
     });
 
     this.win.on("focus", () => {
-      const activeView = this.views[this.activeViewId];
+      const activeView = this.views.get(this.activeViewId);
       activeView?.webContents.focus();
     });
   }
@@ -239,7 +239,7 @@ class MainWindow {
         view.setBackgroundColor("#00000000");
 
         if (isContent) {
-          this.unreadCounts[config.id] = 0;
+          this.unreadCounts.set(config.id, 0);
 
           const originalUserAgent = view.webContents.getUserAgent();
 
@@ -298,7 +298,7 @@ class MainWindow {
           });
         }
 
-        this.views[config.id] = view;
+        this.views.set(config.id, view);
       } catch (error) {
         console.error(
           `[MainWindow] Failed to create view "${config.id}":`,
@@ -310,21 +310,22 @@ class MainWindow {
   }
 
   _attachViews() {
-    Object.values(this.views).forEach((view) =>
-      this.win.contentView.addChildView(view),
-    );
+    this.views.forEach((view) => this.win.contentView.addChildView(view));
   }
 
   _layoutViews() {
     if (!this.win) return;
     const bounds = this.win.getBounds();
 
-    this.views[VIEW_CONFIG.MENU.id].setBounds({
-      x: 0,
-      y: 0,
-      width: LAYOUT_CONSTANTS.MENU_WIDTH,
-      height: bounds.height,
-    });
+    const menuView = this.views.get(VIEW_CONFIG.MENU.id);
+    if (menuView) {
+      menuView.setBounds({
+        x: 0,
+        y: 0,
+        width: LAYOUT_CONSTANTS.MENU_WIDTH,
+        height: bounds.height,
+      });
+    }
 
     const contentBounds = {
       x: LAYOUT_CONSTANTS.MENU_WIDTH,
@@ -333,26 +334,25 @@ class MainWindow {
       height: bounds.height,
     };
 
-    Object.values(this.views).forEach((view) => {
-      if (view !== this.views.menu) {
+    this.views.forEach((view, id) => {
+      if (id !== VIEW_CONFIG.MENU.id) {
         view.setBounds(contentBounds);
       }
     });
   }
 
   _loadInitialContent() {
+    const menuView = this.views.get(VIEW_CONFIG.MENU.id);
+    if (!menuView) return;
+
     // Always load menu view
-    this.views[VIEW_CONFIG.MENU.id].webContents.loadFile(
-      path.join(__dirname, "menu.html"),
-    );
+    menuView.webContents.loadFile(path.join(__dirname, "menu.html"));
 
     // Determine initial active tab
     let lastTabId = this.store.get("lastTab", VIEW_CONFIG.GMAIL.id);
 
     if (!this._getSafeView(lastTabId)) {
-      const firstAvailable = Object.keys(this.views).find(
-        (id) => id !== "menu",
-      );
+      const firstAvailable = [...this.views.keys()].find((id) => id !== "menu");
       lastTabId = firstAvailable || null;
     }
 
@@ -372,15 +372,12 @@ class MainWindow {
       }
     }
 
-    this.views[VIEW_CONFIG.MENU.id].webContents.on("did-finish-load", () => {
-      this.views[VIEW_CONFIG.MENU.id].webContents.send(
-        IPC_CHANNELS.GET_ENABLED_SERVICES,
-        {
-          activeId: this.activeViewId,
-          services: this.enabledServices,
-          config: VIEW_CONFIG,
-        },
-      );
+    menuView.webContents.on("did-finish-load", () => {
+      menuView.webContents.send(IPC_CHANNELS.GET_ENABLED_SERVICES, {
+        activeId: this.activeViewId,
+        services: this.enabledServices,
+        config: VIEW_CONFIG,
+      });
     });
   }
 
@@ -391,7 +388,7 @@ class MainWindow {
 
   _getSafeView(id) {
     if (!VALID_VIEW_IDS.has(id)) return undefined;
-    return this.views[id];
+    return this.views.get(id);
   }
 
   _switchToTab(tabId) {
@@ -444,14 +441,15 @@ class MainWindow {
   _updateUnreadCount(source, count) {
     if (!VALID_VIEW_IDS.has(source)) return;
     const newCount = count ?? 0;
-    if (Object.prototype.hasOwnProperty.call(this.unreadCounts, source)) {
-      this.unreadCounts[source] = newCount;
+    if (this.unreadCounts.has(source)) {
+      this.unreadCounts.set(source, newCount);
     }
   }
 
   _sendToMenu(channel, data) {
-    if (this.views.menu?.webContents) {
-      this.views.menu.webContents.send(channel, data);
+    const menuView = this.views.get(VIEW_CONFIG.MENU.id);
+    if (menuView?.webContents) {
+      menuView.webContents.send(channel, data);
     }
   }
 
@@ -466,9 +464,12 @@ class MainWindow {
 
     ipcMain.on(IPC_CHANNELS.UPDATE_BADGE, (event, { count, source }) => {
       this._updateUnreadCount(source, count);
-      const total = Object.values(this.unreadCounts).reduce((a, b) => a + b, 0);
+      const total = [...this.unreadCounts.values()].reduce((a, b) => a + b, 0);
       app.setBadgeCount(total);
-      this._sendToMenu(IPC_CHANNELS.UPDATE_MENU_BADGES, this.unreadCounts);
+      this._sendToMenu(
+        IPC_CHANNELS.UPDATE_MENU_BADGES,
+        Object.fromEntries(this.unreadCounts),
+      );
     });
 
     ipcMain.on(IPC_CHANNELS.UPDATE_FAVICON, (event, { source, faviconUrl }) => {
