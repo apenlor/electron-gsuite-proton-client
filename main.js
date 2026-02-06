@@ -96,6 +96,8 @@ const packageJson = JSON.parse(
 );
 
 class MainWindow {
+  static VIEW_CONFIG = VIEW_CONFIG;
+
   constructor() {
     this.store = new Store();
     this.win = null;

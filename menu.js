@@ -84,31 +84,26 @@ export function createMenu(mainWindow) {
           },
         },
         { type: "separator" },
-        {
-          label: "Gmail",
-          accelerator: "CmdOrCtrl+1",
-          click: () => mainWindow?._switchToTab("gmail"),
-        },
-        {
-          label: "Google Chat",
-          accelerator: "CmdOrCtrl+2",
-          click: () => mainWindow?._switchToTab("chat"),
-        },
-        {
-          label: "AI Studio",
-          accelerator: "CmdOrCtrl+3",
-          click: () => mainWindow?._switchToTab("aistudio"),
-        },
-        {
-          label: "Google Tasks",
-          accelerator: "CmdOrCtrl+4",
-          click: () => mainWindow?._switchToTab("tasks"),
-        },
-        {
-          label: "Google Drive",
-          accelerator: "CmdOrCtrl+5",
-          click: () => mainWindow?._switchToTab("drive"),
-        },
+        // --- DYNAMIC SERVICE SHORTCUTS ---
+        ...(() => {
+          // Get all content views in the order they appear in the UI
+          const services = Object.values(
+            mainWindow?.constructor.VIEW_CONFIG || {},
+          )
+            .filter((c) => c.isContent && mainWindow?.enabledServices[c.id])
+            .sort((a, b) => {
+              // Ensure Drive is always last if present
+              if (a.id === "drive") return 1;
+              if (b.id === "drive") return -1;
+              return 0; // Maintain VIEW_CONFIG order for others
+            });
+
+          return services.map((service, index) => ({
+            label: service.title,
+            accelerator: `CmdOrCtrl+${index + 1}`,
+            click: () => mainWindow?._switchToTab(service.id),
+          }));
+        })(),
         { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },
