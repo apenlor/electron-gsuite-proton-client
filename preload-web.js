@@ -1,105 +1,12 @@
-const { ipcRenderer, contextBridge } = require("electron");
+const { ipcRenderer } = require("electron");
 
 // --- Contract Definition ---
 const IPC_CHANNELS = {
-  SHOW_NOTIFICATION: "show-notification",
   UPDATE_BADGE: "update-badge",
   UPDATE_FAVICON: "update-favicon",
 };
 
-// --- 1. Secure Bridge ---
-contextBridge.exposeInMainWorld("gsuiteBridge", {
-  triggerNotification: (data) => {
-    ipcRenderer.send(IPC_CHANNELS.SHOW_NOTIFICATION, data);
-  },
-});
-
-// --- 2. Main World Injection ---
-/**
- * Injects a Notification API proxy into the main world (Google's JavaScript context).
- * Intercepts all new Notification() calls and routes them through our IPC bridge.
- * This prevents Google services from triggering browser notifications directly.
- */
-function injectNotificationProxy() {
-  const scriptContent = `
-    (function() {
-      try {
-        // --- A. Mock Permissions API ---
-        if (navigator.permissions && navigator.permissions.query) {
-          const originalQuery = navigator.permissions.query;
-          navigator.permissions.query = (parameters) => {
-            if (parameters.name === 'notifications') {
-              return Promise.resolve({
-                state: 'granted',
-                onchange: null,
-                addEventListener: () => {},
-                removeEventListener: () => {},
-                dispatchEvent: () => false
-              });
-            }
-            return originalQuery(parameters);
-          };
-        }
-
-        // --- B. Class-based Notification Proxy ---
-        const OriginalNotification = window.Notification;
-
-        class GSuiteNotification extends OriginalNotification {
-          constructor(title, options) {
-            if (window.gsuiteBridge) {
-              window.gsuiteBridge.triggerNotification({
-                title,
-                body: options?.body,
-              });
-            }
-            super(title, { ...options, silent: true });
-          }
-        }
-
-        Object.defineProperty(GSuiteNotification, 'permission', {
-          get: () => 'granted',
-          configurable: true
-        });
-        GSuiteNotification.requestPermission = async () => 'granted';
-        window.Notification = GSuiteNotification;
-
-      } catch (e) {
-        // Ignore injection errors
-      }
-    })();
-  `;
-
-  // --- C. Injection Mechanism ---
-  const attemptInjection = () => {
-    const target = document.head || document.documentElement;
-    if (target) {
-      try {
-        const script = document.createElement("script");
-        script.textContent = scriptContent;
-        target.appendChild(script);
-        script.remove();
-        return true;
-      } catch {
-        // Ignore DOM errors
-      }
-    }
-    return false;
-  };
-
-  if (!attemptInjection()) {
-    const observer = new MutationObserver((mutations, obs) => {
-      if (attemptInjection()) {
-        obs.disconnect();
-      }
-    });
-    observer.observe(document, { childList: true, subtree: true });
-  }
-}
-
-// Run immediately
-injectNotificationProxy();
-
-// --- 3. Logic for Isolated World (Favicons/Badges) ---
+// --- Logic for Isolated World (Favicons/Badges) ---
 // Utility: Debounce function to limit rate of execution
 function debounce(func, wait) {
   let timeout;
@@ -119,6 +26,7 @@ let lastBadgeCount = -1;
 function getSourceId() {
   const href = window.location.href;
   if (href.includes("aistudio.google.com")) return "aistudio";
+  if (href.includes("calendar.google.com")) return "calendar";
   if (href.includes("mail.google.com/chat")) return "chat";
   if (href.includes("drive.google.com")) return "drive";
   if (href.includes("tasks.google.com")) return "tasks";

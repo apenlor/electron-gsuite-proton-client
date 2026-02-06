@@ -4,7 +4,6 @@ import {
   WebContentsView,
   ipcMain,
   shell,
-  Notification,
   net,
   Menu,
   MenuItem,
@@ -23,7 +22,6 @@ import contextMenu from "electron-context-menu";
 const IPC_CHANNELS = {
   SWITCH_TAB: "switch-tab",
   UPDATE_BADGE: "update-badge",
-  SHOW_NOTIFICATION: "show-notification",
   SET_ACTIVE_TAB: "set-active-tab",
   UPDATE_MENU_BADGES: "update-menu-badges",
   UPDATE_FAVICON: "update-favicon",
@@ -33,8 +31,8 @@ const IPC_CHANNELS = {
   SET_LOADING_STATE: "set-loading-state",
 };
 
-const NOTIFICATION_LIMITS = {
-  MAX_ACTIVE: 10,
+const LAYOUT_CONSTANTS = {
+  MENU_WIDTH: 80,
 };
 
 const VIEW_CONFIG = {
@@ -52,6 +50,14 @@ const VIEW_CONFIG = {
     title: "Gmail",
     icon: "assets/default/gmail.png",
     url: "https://mail.google.com/mail/u/0/",
+    preload: "preload-web.js",
+    isContent: true,
+  },
+  CALENDAR: {
+    id: "calendar",
+    title: "Calendar",
+    icon: "assets/default/calendar.png",
+    url: "https://calendar.google.com/calendar/u/0/r",
     preload: "preload-web.js",
     isContent: true,
   },
@@ -81,10 +87,6 @@ const VIEW_CONFIG = {
   },
 };
 
-const LAYOUT_CONSTANTS = {
-  MENU_WIDTH: 80,
-};
-
 const VALID_PRELOADS = new Set(
   Object.values(VIEW_CONFIG).map((c) => c.preload),
 );
@@ -104,20 +106,16 @@ class MainWindow {
     this.views = {};
     this.activeViewId = null;
     this.unreadCounts = {};
-    this.activeNotifications = new Set();
     this.loadedViews = new Set();
 
     // Load persistence state (Default: all enabled)
     this.enabledServices = this.store.get("services", {
       aistudio: true,
-      chat: true,
       gmail: true,
+      calendar: true,
+      chat: true,
       drive: true,
       tasks: true,
-    });
-
-    this.notificationConfig = this.store.get("notificationConfig", {
-      showContent: true,
     });
 
     this.zoomLevels = this.store.get("zoomLevels", {});
@@ -175,7 +173,22 @@ class MainWindow {
     const session = this.win.webContents.session;
 
     session.setPermissionRequestHandler((webContents, permission, callback) => {
-      // Deny notifications to avoid duplicates (handled via IPC)
+      if (permission === "notifications") {
+        const url = webContents.getURL();
+        const googleDomains = [
+          "https://mail.google.com",
+          "https://calendar.google.com",
+          "https://chat.google.com",
+          "https://aistudio.google.com",
+          "https://tasks.google.com",
+        ];
+        const isGoogleDomain = googleDomains.some((domain) =>
+          url.startsWith(domain),
+        );
+        return callback(isGoogleDomain);
+      }
+
+      // Allow media (camera/microphone)
       const allowedPermissions = new Set(["media"]);
       callback(allowedPermissions.has(permission));
     });
@@ -452,46 +465,6 @@ class MainWindow {
       this._sendToMenu(IPC_CHANNELS.UPDATE_MENU_BADGES, this.unreadCounts);
     });
 
-    ipcMain.on(IPC_CHANNELS.SHOW_NOTIFICATION, (event, { title, body }) => {
-      if (Notification.isSupported()) {
-        // Limit active notifications
-        if (this.activeNotifications.size >= NOTIFICATION_LIMITS.MAX_ACTIVE) {
-          const oldest = this.activeNotifications.values().next().value;
-          oldest?.close();
-        }
-
-        const showContent = this.store.get(
-          "notificationConfig.showContent",
-          true,
-        );
-        // If content is hidden, use generic text. Otherwise use original.
-        const safeTitle = showContent
-          ? title || "GSuite Client"
-          : "New Message";
-        const safeBody = showContent
-          ? body || "New notification"
-          : "You have a new message";
-
-        const notification = new Notification({
-          title: safeTitle,
-          body: safeBody,
-          icon: path.join(__dirname, "assets/icon.png"),
-          silent: true,
-        });
-
-        this.activeNotifications.add(notification);
-
-        const cleanup = () => this.activeNotifications.delete(notification);
-        notification.on("close", cleanup);
-        notification.on("click", () => {
-          this.win?.focus();
-          cleanup();
-        });
-
-        notification.show();
-      }
-    });
-
     ipcMain.on(IPC_CHANNELS.UPDATE_FAVICON, (event, { source, faviconUrl }) => {
       if (!faviconUrl) return;
 
@@ -553,20 +526,6 @@ class MainWindow {
         });
 
       menu.append(new MenuItem({ type: "separator" }));
-      menu.append(new MenuItem({ label: "Notifications", enabled: false }));
-      menu.append(new MenuItem({ type: "separator" }));
-
-      menu.append(
-        new MenuItem({
-          label: "Show Content",
-          type: "checkbox",
-          checked: this.notificationConfig.showContent,
-          click: (menuItem) => {
-            this.notificationConfig.showContent = menuItem.checked;
-            this.store.set("notificationConfig", this.notificationConfig);
-          },
-        }),
-      );
 
       menu.popup({ window: this.win });
     });
@@ -585,12 +544,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
-  if (mainWindow) {
-    mainWindow.activeNotifications.forEach((n) => n.close());
-    mainWindow.activeNotifications.clear();
-  }
-});
+app.on("before-quit", () => {});
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
