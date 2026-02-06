@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld("gsuiteBridge", {
 });
 
 // --- 2. Main World Injection ---
+/**
+ * Injects a Notification API proxy into the main world (Google's JavaScript context).
+ * Intercepts all new Notification() calls and routes them through our IPC bridge.
+ * This prevents Google services from triggering browser notifications directly.
+ */
 function injectNotificationProxy() {
   const scriptContent = `
     (function() {
@@ -95,6 +100,19 @@ function injectNotificationProxy() {
 injectNotificationProxy();
 
 // --- 3. Logic for Isolated World (Favicons/Badges) ---
+// Utility: Debounce function to limit rate of execution
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
 let lastFaviconUrl = "";
 let lastBadgeCount = -1;
 
@@ -107,6 +125,11 @@ function getSourceId() {
   return "gmail";
 }
 
+/**
+ * Monitors DOM mutations to detect favicon changes.
+ * Sends updated favicon URLs to main process for display in the sidebar menu.
+ * @param {string} sourceId - The service identifier (gmail, chat, drive, etc.)
+ */
 function observeFaviconChanges(sourceId) {
   const headElement = document.querySelector("head");
   if (!headElement) return;
@@ -124,7 +147,10 @@ function observeFaviconChanges(sourceId) {
     }
   };
 
-  const observer = new MutationObserver(checkAndSend);
+  // Debounce to prevent excessive IPC calls during rapid DOM changes
+  const debouncedCheck = debounce(checkAndSend, 500);
+
+  const observer = new MutationObserver(debouncedCheck);
   observer.observe(headElement, {
     childList: true,
     subtree: true,
@@ -134,6 +160,11 @@ function observeFaviconChanges(sourceId) {
   checkAndSend();
 }
 
+/**
+ * Observes Gmail page title for unread count indicator.
+ * Parses "(N)" pattern from document.title and sends count via IPC.
+ * Gmail-specific feature; other services use different badge mechanisms.
+ */
 function observeGmailBadge() {
   const titleElement = document.querySelector("head > title");
   if (!titleElement) return;

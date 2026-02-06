@@ -4,9 +4,18 @@ This document provides instructions for AI agents working on this codebase. Adhe
 
 ## 1. Project Overview
 
-This is an Electron-based desktop client for Google Workspace applications (Gmail, Chat, Drive, AI Studio, etc.). It uses a multi-`BrowserView` architecture to isolate services and provide a seamless user experience. The main process is written in modern JavaScript (ESM) and manages the window, views, and IPC communication.
+This is an Electron-based desktop client for Google Workspace applications (Gmail, Chat, Drive, AI Studio, etc.). It uses a multi-`BrowserView` architecture (specifically `WebContentsView` in newer versions) to isolate services and provide a seamless user experience. The main process is written in modern JavaScript (ESM) and manages the window, views, and IPC communication.
 
 The core logic is encapsulated within the `MainWindow` class in `main.js`. This class is responsible for all aspects of the application lifecycle, from window creation to IPC handling.
+
+**Recent Improvements (v2.3.0):**
+
+- **Lazy Loading:** Views load their URLs on-demand to speed up initial application startup.
+- **Keyboard Shortcuts:** `Cmd/Ctrl+1-5` for rapid switching between services.
+- **Zoom Persistence:** Zoom levels are remembered per service across sessions.
+- **Loading Indicators:** Visual feedback in the sidebar during service initialization.
+- **Performance:** Debounced favicon and badge updates to reduce IPC overhead.
+- **Robustness:** Added error boundaries for view creation and null checks for IPC.
 
 ## 2. Directory Structure
 
@@ -56,6 +65,9 @@ This project uses ESLint for linting and Prettier for formatting. A pre-commit h
   2. Verify all services (Gmail, Chat, etc.) load without white screens.
   3. Check developer console (View -> Toggle Developer Tools) for errors.
   4. Verify IPC functionality (switching tabs, updating badges).
+  5. Test keyboard shortcuts (`Cmd/Ctrl+1-5`) for tab switching.
+  6. Verify zoom levels persist per service after restarting the app.
+  7. Confirm loading indicators appear when switching to a non-loaded service.
 
 ## 4. Code Style Guidelines
 

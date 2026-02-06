@@ -26,18 +26,18 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "electron-context-menu": "^3.6.1",
-    "electron-store": "^9.0.0",
-    "electron-updater": "^6.6.2"
+    "electron-context-menu": "^4.1.1",
+    "electron-store": "^11.0.2",
+    "electron-updater": "^6.7.3"
   },
   "devDependencies": {
-    "electron": "^39.2.1",
-    "electron-builder": "^26.0.12",
-    "eslint": "^9.39.1",
+    "electron": "^40.2.1",
+    "electron-builder": "^26.7.0",
+    "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.6",
-    "prettier": "^3.6.2"
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1"
   },
   "build": {
     "appId": "com.apenlor.gsuite-client",

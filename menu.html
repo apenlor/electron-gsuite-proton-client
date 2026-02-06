@@ -12,6 +12,11 @@
         --badge-color: #db4437;
         --font-family:
           -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --button-width: 58px;
+        --button-height: 52px;
+        --button-radius: 12px;
+        --badge-size: 18px;
+        --badge-offset: 6px;
       }
 
       html,
@@ -39,10 +44,10 @@
       }
 
       .nav-button {
-        width: 58px;
-        height: 52px;
+        width: var(--button-width);
+        height: var(--button-height);
         border: none;
-        border-radius: 12px;
+        border-radius: var(--button-radius);
         background-color: transparent;
         cursor: pointer;
         outline: none;
@@ -69,15 +74,15 @@
 
       .badge {
         position: absolute;
-        top: 6px;
-        right: 6px;
+        top: var(--badge-offset);
+        right: var(--badge-offset);
         background-color: var(--badge-color);
         color: white;
         border-radius: 50%;
-        min-width: 18px;
-        height: 18px;
+        min-width: var(--badge-size);
+        height: var(--badge-size);
         font-size: 11px;
-        line-height: 18px;
+        line-height: var(--badge-size);
         font-weight: bold;
         text-align: center;
         padding: 0 4px;
@@ -92,6 +97,35 @@
 
       .spacer {
         flex-grow: 1;
+      }
+
+      .nav-button.loading {
+        position: relative;
+      }
+
+      .nav-button.loading::after {
+        content: "";
+        position: absolute;
+        bottom: 4px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 4px;
+        height: 4px;
+        background-color: var(--badge-color);
+        border-radius: 50%;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.4;
+          transform: translateX(-50%) scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: translateX(-50%) scale(1.5);
+        }
       }
     </style>
   </head>
@@ -159,6 +193,10 @@
 
           window.electronAPI.on("update-menu-icon", ({ source, dataUrl }) =>
             this.updateIcon(source, dataUrl),
+          );
+
+          window.electronAPI.on("set-loading-state", ({ serviceId, loading }) =>
+            this.setLoadingState(serviceId, loading),
           );
         }
 
@@ -244,6 +282,15 @@
           );
           if (icon) {
             icon.src = dataUrl;
+          }
+        }
+
+        setLoadingState(serviceId, isLoading) {
+          const button = this.container.querySelector(
+            `[data-service-id="${serviceId}"] .nav-button`,
+          );
+          if (button) {
+            button.classList.toggle("loading", isLoading);
           }
         }
       }
