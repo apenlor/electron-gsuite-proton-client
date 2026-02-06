@@ -94,11 +94,118 @@ function observeGmailBadge() {
   checkAndSend();
 }
 
+/**
+ * Intercepts Service Worker notifications for Google Calendar.
+ * Converts registration.showNotification() calls to standard Notification API.
+ * This fixes Electron's failure to bridge SW notifications to macOS properly.
+ */
+function interceptCalendarServiceWorker() {
+  // STEP 1: Intercept future registrations
+  const originalRegister = navigator.serviceWorker.register.bind(
+    navigator.serviceWorker,
+  );
+
+  navigator.serviceWorker.register = async function (...args) {
+    const registration = await originalRegister(...args);
+    patchShowNotification(registration);
+    return registration;
+  };
+
+  // STEP 2: Patch existing registrations
+  navigator.serviceWorker.ready
+    .then((registration) => {
+      patchShowNotification(registration);
+    })
+    .catch((err) => {
+      console.warn("[Calendar] Service Worker not ready, using fallback:", err);
+      enableFallbackNotificationDetector();
+    });
+
+  function patchShowNotification(registration) {
+    const originalShow = registration.showNotification.bind(registration);
+
+    registration.showNotification = function (title, options) {
+      try {
+        // Create standard notification (works in Electron)
+        const notification = new Notification(title, options || {});
+        notification.onclick = () => {
+          ipcRenderer.send("switch-tab", "calendar");
+        };
+      } catch (e) {
+        console.error("[Calendar] Failed to show notification:", e);
+        // Fallback: generic notification
+        const fallbackNotification = new Notification("📅 Calendar Event", {
+          body: "You have a calendar reminder",
+          icon: "https://calendar.google.com/googlecalendar/images/favicons_2020q4/calendar_18.ico",
+        });
+        fallbackNotification.onclick = () => {
+          ipcRenderer.send("switch-tab", "calendar");
+        };
+      }
+
+      // Still call original to maintain SW state/lifecycle
+      return originalShow(title, options);
+    };
+  }
+
+  function enableFallbackNotificationDetector() {
+    let lastNotificationTime = 0;
+    const DEBOUNCE_MS = 5000; // Prevent duplicate notifications
+
+    // Monitor for audio playback (notification sound)
+    document.addEventListener(
+      "play",
+      (e) => {
+        if (
+          e.target.tagName === "AUDIO" &&
+          Date.now() - lastNotificationTime > DEBOUNCE_MS
+        ) {
+          lastNotificationTime = Date.now();
+          showGenericCalendarNotification();
+        }
+      },
+      true,
+    );
+
+    // Monitor title changes (Calendar updates title on events)
+    const titleObserver = new MutationObserver(() => {
+      const hasEventIndicator = /\(\d+\)/.test(document.title);
+      if (
+        hasEventIndicator &&
+        Date.now() - lastNotificationTime > DEBOUNCE_MS
+      ) {
+        lastNotificationTime = Date.now();
+        showGenericCalendarNotification();
+      }
+    });
+
+    const titleElement = document.querySelector("title");
+    if (titleElement) {
+      titleObserver.observe(titleElement, { childList: true });
+    }
+  }
+
+  function showGenericCalendarNotification() {
+    const notification = new Notification("📅 Calendar Event", {
+      body: "You have a calendar reminder - check your calendar",
+      icon: "https://calendar.google.com/googlecalendar/images/favicons_2020q4/calendar_18.ico",
+      tag: "calendar-generic", // Prevent duplicates
+    });
+    notification.onclick = () => {
+      ipcRenderer.send("switch-tab", "calendar");
+    };
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const sourceId = getSourceId();
   observeFaviconChanges(sourceId);
 
   if (sourceId === "gmail") {
     observeGmailBadge();
+  }
+
+  if (sourceId === "calendar") {
+    interceptCalendarServiceWorker();
   }
 });
