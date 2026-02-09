@@ -57,7 +57,7 @@ export function createMenu(mainWindow) {
           label: "Reload",
           accelerator: "CmdOrCtrl+R",
           click: () => {
-            const activeView = mainWindow?.views[mainWindow.activeViewId];
+            const activeView = mainWindow?.views.get(mainWindow.activeViewId);
             if (activeView) {
               activeView.webContents.reload();
             }
@@ -67,7 +67,7 @@ export function createMenu(mainWindow) {
           label: "Force Reload",
           accelerator: "CmdOrCtrl+Shift+R",
           click: () => {
-            const activeView = mainWindow?.views[mainWindow.activeViewId];
+            const activeView = mainWindow?.views.get(mainWindow.activeViewId);
             if (activeView) {
               activeView.webContents.reloadIgnoringCache();
             }
@@ -77,7 +77,7 @@ export function createMenu(mainWindow) {
           label: "Toggle Developer Tools",
           accelerator: isMac ? "Alt+Command+I" : "Ctrl+Shift+I",
           click: () => {
-            const activeView = mainWindow?.views[mainWindow.activeViewId];
+            const activeView = mainWindow?.views.get(mainWindow.activeViewId);
             if (activeView) {
               activeView.webContents.toggleDevTools();
             }
