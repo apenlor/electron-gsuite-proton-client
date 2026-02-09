@@ -7,6 +7,7 @@ import {
   net,
   Menu,
   MenuItem,
+  Notification,
 } from "electron";
 import path from "path";
 import fs from "fs";
@@ -29,6 +30,7 @@ const IPC_CHANNELS = {
   SHOW_CONTEXT_MENU: "show-context-menu",
   GET_ENABLED_SERVICES: "get-enabled-services",
   SET_LOADING_STATE: "set-loading-state",
+  SHOW_NOTIFICATION: "show-notification",
 };
 
 const LAYOUT_CONSTANTS = {
@@ -536,6 +538,25 @@ class MainWindow {
 
       menu.popup({ window: this.win });
     });
+
+    ipcMain.on(
+      IPC_CHANNELS.SHOW_NOTIFICATION,
+      (event, { title, body, source }) => {
+        const notification = new Notification({
+          title,
+          body,
+          silent: false,
+        });
+
+        notification.on("click", () => {
+          if (source) this._switchToTab(source);
+          this.win.show();
+          this.win.focus();
+        });
+
+        notification.show();
+      },
+    );
   }
 }
 

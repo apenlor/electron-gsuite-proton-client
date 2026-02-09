@@ -9,6 +9,12 @@ const IPC_CHANNELS = {
 // --- Secure Bridge for Main World ---
 contextBridge.exposeInMainWorld("gsuiteBridge", {
   focusCalendar: () => ipcRenderer.send("switch-tab", "calendar"),
+  triggerNotification: (title, body) =>
+    ipcRenderer.send("show-notification", {
+      title,
+      body,
+      source: getSourceId(),
+    }),
 });
 
 // --- Logic for Isolated World (Favicons/Badges) ---
@@ -113,10 +119,9 @@ function interceptCalendarServiceWorker() {
         const originalShow = registration.showNotification.bind(registration);
         registration.showNotification = function(title, options) {
           try {
-            const notification = new Notification(title, options || {});
-            notification.onclick = () => {
-              if (window.gsuiteBridge) window.gsuiteBridge.focusCalendar();
-            };
+            if (window.gsuiteBridge) {
+              window.gsuiteBridge.triggerNotification(title, options?.body || "");
+            }
           } catch (e) {
             console.error('[Calendar] Main World Notification failed:', e);
           }
@@ -189,14 +194,19 @@ function enableFallbackNotificationDetector() {
 }
 
 function showGenericCalendarNotification() {
-  const notification = new Notification("📅 Calendar Event", {
-    body: "You have a calendar reminder - check your calendar",
-    icon: "https://calendar.google.com/googlecalendar/images/favicons_2020q4/calendar_18.ico",
-    tag: "calendar-generic",
-  });
-  notification.onclick = () => {
-    ipcRenderer.send("switch-tab", "calendar");
-  };
+  if (window.gsuiteBridge) {
+    window.gsuiteBridge.triggerNotification(
+      "📅 Calendar Event",
+      "You have a calendar reminder - check your calendar",
+    );
+  } else {
+    // Fallback for cases where bridge might not be ready
+    ipcRenderer.send("show-notification", {
+      title: "📅 Calendar Event",
+      body: "You have a calendar reminder - check your calendar",
+      source: "calendar",
+    });
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
