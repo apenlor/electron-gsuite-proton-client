@@ -159,7 +159,7 @@ class MainWindow {
       ...bounds,
       minWidth: 1000,
       minHeight: 700,
-      title: "GSuite Client",
+      title: "GSuite & Proton Client",
       backgroundColor: "#202124",
       icon: path.join(__dirname, "assets/icons/png/1024x1024.png"),
     });
@@ -253,7 +253,7 @@ class MainWindow {
   /**
    * Creates BrowserView instances for all enabled services.
    * Each view is isolated with its own preload script and security settings.
-   * Handles user-agent spoofing for AI Studio compatibility.
+   * Handles user-agent spoofing for better compatibility.
    * @throws {Error} Critical error if preload validation fails (security)
    */
   _createViews() {
