@@ -39,19 +39,11 @@ const LAYOUT_CONSTANTS = {
 
 const VIEW_CONFIG = {
   MENU: { id: "menu", preload: "preload.js", isContent: false },
-  AISTUDIO: {
-    id: "aistudio",
-    title: "AI Studio",
-    icon: "assets/default/aistudio.png",
-    url: "https://aistudio.google.com",
-    preload: "preload-web.js",
-    isContent: true,
-  },
-  GMAIL: {
-    id: "gmail",
-    title: "Gmail",
-    icon: "assets/default/gmail.png",
-    url: "https://mail.google.com/mail/u/0/",
+  DRIVE: {
+    id: "drive",
+    title: "Google Drive",
+    icon: "assets/default/drive.png",
+    url: "https://drive.google.com/drive/u/0/my-drive",
     preload: "preload-web.js",
     isContent: true,
   },
@@ -63,19 +55,19 @@ const VIEW_CONFIG = {
     preload: "preload-web.js",
     isContent: true,
   },
+  GMAIL: {
+    id: "gmail",
+    title: "Gmail",
+    icon: "assets/default/gmail.png",
+    url: "https://mail.google.com/mail/u/0/",
+    preload: "preload-web.js",
+    isContent: true,
+  },
   CHAT: {
     id: "chat",
     title: "Google Chat",
     icon: "assets/default/chat.png",
     url: "https://mail.google.com/chat/u/0/#chat/home",
-    preload: "preload-web.js",
-    isContent: true,
-  },
-  DRIVE: {
-    id: "drive",
-    title: "Google Drive",
-    icon: "assets/default/drive.png",
-    url: "https://drive.google.com/drive/u/0/my-drive",
     preload: "preload-web.js",
     isContent: true,
   },
@@ -114,7 +106,6 @@ class MainWindow {
 
     // Load persistence state (Default: all enabled)
     this.enabledServices = this.store.get("services", {
-      aistudio: true,
       gmail: true,
       calendar: true,
       chat: true,
@@ -184,7 +175,6 @@ class MainWindow {
             "https://mail.google.com",
             "https://calendar.google.com",
             "https://chat.google.com",
-            "https://aistudio.google.com",
             "https://tasks.google.com",
           ];
           const isGoogleDomain = googleDomains.some((domain) =>
@@ -244,19 +234,11 @@ class MainWindow {
           this.unreadCounts.set(config.id, 0);
 
           const originalUserAgent = view.webContents.getUserAgent();
-
-          if (config.id === "aistudio") {
-            // AI Studio requires a modern, Chrome-like User-Agent to function correctly.
-            view.webContents.setUserAgent(
-              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            );
-          } else {
-            const cleanUserAgent = originalUserAgent.replace(
-              /Electron\/[0-9.]+\s/,
-              "",
-            );
-            view.webContents.setUserAgent(cleanUserAgent);
-          }
+          const cleanUserAgent = originalUserAgent.replace(
+            /Electron\/[0-9.]+\s/,
+            "",
+          );
+          view.webContents.setUserAgent(cleanUserAgent);
 
           contextMenu({
             window: view,
@@ -351,7 +333,7 @@ class MainWindow {
     menuView.webContents.loadFile(path.join(__dirname, "menu.html"));
 
     // Determine initial active tab
-    let lastTabId = this.store.get("lastTab", VIEW_CONFIG.GMAIL.id);
+    let lastTabId = this.store.get("lastTab", VIEW_CONFIG.DRIVE.id);
 
     if (!this._getSafeView(lastTabId)) {
       const firstAvailable = [...this.views.keys()].find((id) => id !== "menu");

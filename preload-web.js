@@ -36,7 +36,6 @@ let lastBadgeCount = -1;
 
 function getSourceId() {
   const href = window.location.href;
-  if (href.includes("aistudio.google.com")) return "aistudio";
   if (href.includes("calendar.google.com")) return "calendar";
   if (href.includes("mail.google.com/chat")) return "chat";
   if (href.includes("drive.google.com")) return "drive";
