@@ -89,6 +89,15 @@ const VIEW_CONFIG = {
     isContent: true,
     partition: "persist:proton",
   },
+  PROTONCALENDAR: {
+    id: "protoncalendar",
+    title: "Proton Calendar",
+    icon: "assets/default/proton-calendar.png",
+    url: "https://calendar.proton.me",
+    preload: "preload-proton.js",
+    isContent: true,
+    partition: "persist:proton",
+  },
 };
 
 const VALID_PRELOADS = new Set(
@@ -122,6 +131,7 @@ class MainWindow {
       drive: true,
       tasks: true,
       protonmail: false,
+      protoncalendar: false,
     });
 
     this.zoomLevels = this.store.get("zoomLevels", {});
@@ -220,6 +230,7 @@ class MainWindow {
           const url = webContents.getURL();
           const isProtonDomain =
             url.startsWith("https://mail.proton.me") ||
+            url.startsWith("https://calendar.proton.me") ||
             url.startsWith("https://account.proton.me");
           return callback(isProtonDomain);
         }

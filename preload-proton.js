@@ -5,13 +5,19 @@ const IPC_CHANNELS = {
   UPDATE_FAVICON: "update-favicon",
 };
 
+function getSourceId() {
+  const href = window.location.href;
+  if (href.includes("calendar.proton.me")) return "protoncalendar";
+  return "protonmail";
+}
+
 // Bridge for notifications
 contextBridge.exposeInMainWorld("protonBridge", {
   triggerNotification: (title, body) =>
     ipcRenderer.send("show-notification", {
       title,
       body,
-      source: "protonmail",
+      source: getSourceId(),
     }),
 });
 
@@ -42,7 +48,7 @@ function observeFaviconChanges() {
     if (currentUrl && currentUrl !== lastFaviconUrl) {
       lastFaviconUrl = currentUrl;
       ipcRenderer.send(IPC_CHANNELS.UPDATE_FAVICON, {
-        source: "protonmail",
+        source: getSourceId(),
         faviconUrl: lastFaviconUrl,
       });
     }
@@ -92,13 +98,16 @@ function interceptNotifications() {
 // --- Badge Detection (Best effort) ---
 function attemptBadgeDetection() {
   const checkUnreadCount = () => {
-    // Proton Mail unread count logic
+    const sourceId = getSourceId();
+    // Only apply unread count for mail
+    if (sourceId !== "protonmail") return;
+
     const titleMatch = document.title.match(/\((\d+)\)/);
     const count = titleMatch ? parseInt(titleMatch[1], 10) : 0;
 
     ipcRenderer.send(IPC_CHANNELS.UPDATE_BADGE, {
       count,
-      source: "protonmail",
+      source: sourceId,
     });
   };
 

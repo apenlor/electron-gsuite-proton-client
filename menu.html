@@ -207,7 +207,8 @@
           Object.values(viewConfig).forEach((conf) => {
             if (!conf.isContent) return;
             if (!enabledServices[conf.id]) return;
-            if (conf.id === "protonmail") return; // Skip Proton, render it later
+            if (conf.id === "protonmail" || conf.id === "protoncalendar")
+              return; // Skip Proton, render it later
 
             this._createButton(conf);
           });
@@ -218,11 +219,19 @@
           this.container.appendChild(spacer);
 
           // 3. Render Proton Mail (Bottom)
-          const protonConf = Object.values(viewConfig).find(
+          const protonMailConf = Object.values(viewConfig).find(
             (c) => c.id === "protonmail",
           );
-          if (protonConf && enabledServices.protonmail) {
-            this._createButton(protonConf);
+          if (protonMailConf && enabledServices.protonmail) {
+            this._createButton(protonMailConf);
+          }
+
+          // 4. Render Proton Calendar (Below Mail)
+          const protonCalConf = Object.values(viewConfig).find(
+            (c) => c.id === "protoncalendar",
+          );
+          if (protonCalConf && enabledServices.protoncalendar) {
+            this._createButton(protonCalConf);
           }
         }
 
