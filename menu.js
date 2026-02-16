@@ -92,9 +92,9 @@ export function createMenu(mainWindow) {
           )
             .filter((c) => c.isContent && mainWindow?.enabledServices[c.id])
             .sort((a, b) => {
-              // Ensure Tasks is always last if present
-              if (a.id === "tasks") return 1;
-              if (b.id === "tasks") return -1;
+              // Ensure Proton Mail is always last if present
+              if (a.id === "protonmail") return 1;
+              if (b.id === "protonmail") return -1;
               return 0; // Maintain VIEW_CONFIG order for others
             });
 

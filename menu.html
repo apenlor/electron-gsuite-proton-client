@@ -203,26 +203,26 @@
         buildMenu(enabledServices, viewConfig) {
           this.container.innerHTML = "";
 
-          // 1. Render Primary Apps (Top: Drive, Calendar, Gmail, Chat)
+          // 1. Render Primary Apps (Top: Drive, Calendar, Gmail, Chat, Tasks)
           Object.values(viewConfig).forEach((conf) => {
             if (!conf.isContent) return;
             if (!enabledServices[conf.id]) return;
-            if (conf.id === "tasks") return; // Skip Tasks, render it later
+            if (conf.id === "protonmail") return; // Skip Proton, render it later
 
             this._createButton(conf);
           });
 
-          // 2. Add Spacer to push Tasks to bottom
+          // 2. Add Spacer to push Proton to bottom
           const spacer = document.createElement("div");
           spacer.className = "spacer";
           this.container.appendChild(spacer);
 
-          // 3. Render Tasks (Bottom)
-          const tasksConf = Object.values(viewConfig).find(
-            (c) => c.id === "tasks",
+          // 3. Render Proton Mail (Bottom)
+          const protonConf = Object.values(viewConfig).find(
+            (c) => c.id === "protonmail",
           );
-          if (tasksConf && enabledServices.tasks) {
-            this._createButton(tasksConf);
+          if (protonConf && enabledServices.protonmail) {
+            this._createButton(protonConf);
           }
         }
 

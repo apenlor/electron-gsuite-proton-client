@@ -8,6 +8,7 @@ import {
   Menu,
   MenuItem,
   Notification,
+  session,
 } from "electron";
 import path from "path";
 import fs from "fs";
@@ -79,6 +80,15 @@ const VIEW_CONFIG = {
     preload: "preload-web.js",
     isContent: true,
   },
+  PROTONMAIL: {
+    id: "protonmail",
+    title: "Proton Mail",
+    icon: "assets/default/proton-mail.png",
+    url: "https://mail.proton.me/u/0/inbox",
+    preload: "preload-proton.js",
+    isContent: true,
+    partition: "persist:proton",
+  },
 };
 
 const VALID_PRELOADS = new Set(
@@ -111,6 +121,7 @@ class MainWindow {
       chat: true,
       drive: true,
       tasks: true,
+      protonmail: false,
     });
 
     this.zoomLevels = this.store.get("zoomLevels", {});
@@ -123,6 +134,7 @@ class MainWindow {
   create() {
     this._createWindow();
     this._setupSecurity();
+    this._setupProtonSecurity();
     this._createViews();
     this._attachViews();
     this._layoutViews();
@@ -199,6 +211,34 @@ class MainWindow {
     });
   }
 
+  _setupProtonSecurity() {
+    const protonSession = session.fromPartition("persist:proton");
+
+    protonSession.setPermissionRequestHandler(
+      (webContents, permission, callback) => {
+        if (permission === "notifications") {
+          const url = webContents.getURL();
+          const isProtonDomain =
+            url.startsWith("https://mail.proton.me") ||
+            url.startsWith("https://account.proton.me");
+          return callback(isProtonDomain);
+        }
+
+        const allowedPermissions = new Set(["media"]);
+        callback(allowedPermissions.has(permission));
+      },
+    );
+
+    protonSession.webRequest.onHeadersReceived((details, callback) => {
+      const responseHeaders = { ...details.responseHeaders };
+      delete responseHeaders["x-frame-options"];
+      delete responseHeaders["X-Frame-Options"];
+      delete responseHeaders["content-security-policy"];
+      delete responseHeaders["Content-Security-Policy"];
+      callback({ responseHeaders });
+    });
+  }
+
   /**
    * Creates BrowserView instances for all enabled services.
    * Each view is isolated with its own preload script and security settings.
@@ -226,6 +266,10 @@ class MainWindow {
           nodeIntegration: !isContent,
           backgroundThrottling: false,
         };
+
+        if (config.partition) {
+          webPreferences.partition = config.partition;
+        }
 
         const view = new WebContentsView({ webPreferences });
         view.setBackgroundColor("#00000000");
