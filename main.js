@@ -525,7 +525,12 @@ class MainWindow {
       try {
         const request = net.request(faviconUrl);
         request.on("response", (response) => {
-          if (response.statusCode !== 200) return;
+          if (response.statusCode !== 200) {
+            console.error(
+              `Favicon fetch failed for ${source}: HTTP ${response.statusCode}`,
+            );
+            return;
+          }
           const chunks = [];
           response.on("data", (chunk) => chunks.push(chunk));
           response.on("end", () => {

@@ -51,6 +51,7 @@
       "menu.js",
       "preload.js",
       "preload-web.js",
+      "preload-proton.js",
       "menu.html",
       "assets/**/*",
       "node_modules/"

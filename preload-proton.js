@@ -38,8 +38,12 @@ let lastFaviconUrl = "";
 
 // --- Favicon Observer ---
 function observeFaviconChanges() {
+  const sourceId = getSourceId();
   const headElement = document.querySelector("head");
-  if (!headElement) return;
+  if (!headElement) {
+    setTimeout(() => observeFaviconChanges(), 500);
+    return;
+  }
 
   const checkAndSend = () => {
     const links = Array.from(document.querySelectorAll("link[rel*='icon']"));
@@ -48,7 +52,7 @@ function observeFaviconChanges() {
     if (currentUrl && currentUrl !== lastFaviconUrl) {
       lastFaviconUrl = currentUrl;
       ipcRenderer.send(IPC_CHANNELS.UPDATE_FAVICON, {
-        source: getSourceId(),
+        source: sourceId,
         faviconUrl: lastFaviconUrl,
       });
     }
@@ -62,7 +66,14 @@ function observeFaviconChanges() {
     attributes: true,
     attributeFilter: ["href"],
   });
+
+  // Immediate check
   checkAndSend();
+
+  // Delayed retries for late-loaded favicons
+  setTimeout(checkAndSend, 1500);
+  setTimeout(checkAndSend, 3000);
+  setTimeout(checkAndSend, 5000);
 }
 
 // --- Native Notification Interception ---
