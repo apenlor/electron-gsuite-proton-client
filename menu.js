@@ -92,9 +92,12 @@ export function createMenu(mainWindow) {
           )
             .filter((c) => c.isContent && mainWindow?.enabledServices[c.id])
             .sort((a, b) => {
-              // Ensure Drive is always last if present
-              if (a.id === "drive") return 1;
-              if (b.id === "drive") return -1;
+              // Ensure Proton Calendar is always last
+              if (a.id === "protoncalendar") return 1;
+              if (b.id === "protoncalendar") return -1;
+              // Ensure Proton Mail is second to last
+              if (a.id === "protonmail") return 1;
+              if (b.id === "protonmail") return -1;
               return 0; // Maintain VIEW_CONFIG order for others
             });
 

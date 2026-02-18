@@ -8,6 +8,7 @@ import {
   Menu,
   MenuItem,
   Notification,
+  session,
 } from "electron";
 import path from "path";
 import fs from "fs";
@@ -39,19 +40,11 @@ const LAYOUT_CONSTANTS = {
 
 const VIEW_CONFIG = {
   MENU: { id: "menu", preload: "preload.js", isContent: false },
-  AISTUDIO: {
-    id: "aistudio",
-    title: "AI Studio",
-    icon: "assets/default/aistudio.png",
-    url: "https://aistudio.google.com",
-    preload: "preload-web.js",
-    isContent: true,
-  },
-  GMAIL: {
-    id: "gmail",
-    title: "Gmail",
-    icon: "assets/default/gmail.png",
-    url: "https://mail.google.com/mail/u/0/",
+  DRIVE: {
+    id: "drive",
+    title: "Google Drive",
+    icon: "assets/default/drive.png",
+    url: "https://drive.google.com/drive/u/0/my-drive",
     preload: "preload-web.js",
     isContent: true,
   },
@@ -63,19 +56,19 @@ const VIEW_CONFIG = {
     preload: "preload-web.js",
     isContent: true,
   },
+  GMAIL: {
+    id: "gmail",
+    title: "Gmail",
+    icon: "assets/default/gmail.png",
+    url: "https://mail.google.com/mail/u/0/",
+    preload: "preload-web.js",
+    isContent: true,
+  },
   CHAT: {
     id: "chat",
     title: "Google Chat",
     icon: "assets/default/chat.png",
     url: "https://mail.google.com/chat/u/0/#chat/home",
-    preload: "preload-web.js",
-    isContent: true,
-  },
-  DRIVE: {
-    id: "drive",
-    title: "Google Drive",
-    icon: "assets/default/drive.png",
-    url: "https://drive.google.com/drive/u/0/my-drive",
     preload: "preload-web.js",
     isContent: true,
   },
@@ -86,6 +79,24 @@ const VIEW_CONFIG = {
     url: "https://tasks.google.com/tasks",
     preload: "preload-web.js",
     isContent: true,
+  },
+  PROTONMAIL: {
+    id: "protonmail",
+    title: "Proton Mail",
+    icon: "assets/default/proton-mail.png",
+    url: "https://mail.proton.me/u/0/inbox",
+    preload: "preload-proton.js",
+    isContent: true,
+    partition: "persist:proton",
+  },
+  PROTONCALENDAR: {
+    id: "protoncalendar",
+    title: "Proton Calendar",
+    icon: "assets/default/proton-calendar.png",
+    url: "https://calendar.proton.me",
+    preload: "preload-proton.js",
+    isContent: true,
+    partition: "persist:proton",
   },
 };
 
@@ -114,12 +125,13 @@ class MainWindow {
 
     // Load persistence state (Default: all enabled)
     this.enabledServices = this.store.get("services", {
-      aistudio: true,
       gmail: true,
       calendar: true,
       chat: true,
       drive: true,
       tasks: true,
+      protonmail: false,
+      protoncalendar: false,
     });
 
     this.zoomLevels = this.store.get("zoomLevels", {});
@@ -132,6 +144,7 @@ class MainWindow {
   create() {
     this._createWindow();
     this._setupSecurity();
+    this._setupProtonSecurity();
     this._createViews();
     this._attachViews();
     this._layoutViews();
@@ -146,7 +159,7 @@ class MainWindow {
       ...bounds,
       minWidth: 1000,
       minHeight: 700,
-      title: "GSuite Client",
+      title: "GSuite & Proton Client",
       backgroundColor: "#202124",
       icon: path.join(__dirname, "assets/icons/png/1024x1024.png"),
     });
@@ -184,7 +197,6 @@ class MainWindow {
             "https://mail.google.com",
             "https://calendar.google.com",
             "https://chat.google.com",
-            "https://aistudio.google.com",
             "https://tasks.google.com",
           ];
           const isGoogleDomain = googleDomains.some((domain) =>
@@ -209,10 +221,39 @@ class MainWindow {
     });
   }
 
+  _setupProtonSecurity() {
+    const protonSession = session.fromPartition("persist:proton");
+
+    protonSession.setPermissionRequestHandler(
+      (webContents, permission, callback) => {
+        if (permission === "notifications") {
+          const url = webContents.getURL();
+          const isProtonDomain =
+            url.startsWith("https://mail.proton.me") ||
+            url.startsWith("https://calendar.proton.me") ||
+            url.startsWith("https://account.proton.me");
+          return callback(isProtonDomain);
+        }
+
+        const allowedPermissions = new Set(["media"]);
+        callback(allowedPermissions.has(permission));
+      },
+    );
+
+    protonSession.webRequest.onHeadersReceived((details, callback) => {
+      const responseHeaders = { ...details.responseHeaders };
+      delete responseHeaders["x-frame-options"];
+      delete responseHeaders["X-Frame-Options"];
+      delete responseHeaders["content-security-policy"];
+      delete responseHeaders["Content-Security-Policy"];
+      callback({ responseHeaders });
+    });
+  }
+
   /**
    * Creates BrowserView instances for all enabled services.
    * Each view is isolated with its own preload script and security settings.
-   * Handles user-agent spoofing for AI Studio compatibility.
+   * Handles user-agent spoofing for better compatibility.
    * @throws {Error} Critical error if preload validation fails (security)
    */
   _createViews() {
@@ -237,6 +278,10 @@ class MainWindow {
           backgroundThrottling: false,
         };
 
+        if (config.partition) {
+          webPreferences.partition = config.partition;
+        }
+
         const view = new WebContentsView({ webPreferences });
         view.setBackgroundColor("#00000000");
 
@@ -244,19 +289,11 @@ class MainWindow {
           this.unreadCounts.set(config.id, 0);
 
           const originalUserAgent = view.webContents.getUserAgent();
-
-          if (config.id === "aistudio") {
-            // AI Studio requires a modern, Chrome-like User-Agent to function correctly.
-            view.webContents.setUserAgent(
-              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            );
-          } else {
-            const cleanUserAgent = originalUserAgent.replace(
-              /Electron\/[0-9.]+\s/,
-              "",
-            );
-            view.webContents.setUserAgent(cleanUserAgent);
-          }
+          const cleanUserAgent = originalUserAgent.replace(
+            /Electron\/[0-9.]+\s/,
+            "",
+          );
+          view.webContents.setUserAgent(cleanUserAgent);
 
           contextMenu({
             window: view,
@@ -351,7 +388,7 @@ class MainWindow {
     menuView.webContents.loadFile(path.join(__dirname, "menu.html"));
 
     // Determine initial active tab
-    let lastTabId = this.store.get("lastTab", VIEW_CONFIG.GMAIL.id);
+    let lastTabId = this.store.get("lastTab", VIEW_CONFIG.DRIVE.id);
 
     if (!this._getSafeView(lastTabId)) {
       const firstAvailable = [...this.views.keys()].find((id) => id !== "menu");
@@ -488,7 +525,12 @@ class MainWindow {
       try {
         const request = net.request(faviconUrl);
         request.on("response", (response) => {
-          if (response.statusCode !== 200) return;
+          if (response.statusCode !== 200) {
+            console.error(
+              `Favicon fetch failed for ${source}: HTTP ${response.statusCode}`,
+            );
+            return;
+          }
           const chunks = [];
           response.on("data", (chunk) => chunks.push(chunk));
           response.on("end", () => {

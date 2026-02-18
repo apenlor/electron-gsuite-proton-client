@@ -4,29 +4,29 @@ This document provides instructions for AI agents working on this codebase. Adhe
 
 ## 1. Project Overview
 
-This is an Electron-based desktop client for Google Workspace applications (Gmail, Calendar, Chat, Drive, AI Studio, etc.). It uses a multi-`BrowserView` architecture (specifically `WebContentsView` in newer versions) to isolate services and provide a seamless user experience. The main process is written in modern JavaScript (ESM) and manages the window, views, and IPC communication.
+This is an Electron-based desktop client for Google Workspace (Gmail, Calendar, Chat, Drive, Tasks) and Proton (Mail, Calendar). It uses a multi-`WebContentsView` architecture to isolate services and provide a seamless user experience. The main process is written in modern JavaScript (ESM) and manages the window, views, and IPC communication.
 
 The core logic is encapsulated within the `MainWindow` class in `main.js`. This class is responsible for all aspects of the application lifecycle, from window creation to IPC handling.
 
-**Recent Improvements (v3.0.0):**
+**Recent Improvements (v4.0.0):**
 
-- **Native Notifications:** Switched from custom proxying to browser-native notifications. Notifications for Gmail, Chat, and Calendar now leverage the OS native system directly via standard web APIs.
-- **Google Calendar Support:** Added as a core service, positioned immediately under Gmail.
+- **Proton Integration:** Added support for Proton Mail and Proton Calendar.
+- **Privacy Isolation:** Implemented session partitioning (`persist:proton`) for Proton services to ensure complete isolation from the Google ecosystem.
+- **Service Reordering:** Refined sidebar order (Drive, Calendar, Gmail, Chat, Tasks) with Proton services at the bottom.
+- **Native Notifications:** Notifications for all services leverage the OS native system directly via standard web APIs.
 - **Lazy Loading:** Views load their URLs on-demand to speed up initial application startup.
-- **Keyboard Shortcuts:** `Cmd/Ctrl+1-6` for rapid switching between services.
+- **Keyboard Shortcuts:** `Cmd/Ctrl+1-7` for rapid switching between services.
 - **Zoom Persistence:** Zoom levels are remembered per service across sessions.
-- **Loading Indicators:** Visual feedback in the sidebar during service initialization.
-- **Performance:** Debounced favicon and badge updates to reduce IPC overhead.
-- **Robustness:** Added error boundaries for view creation and null checks for IPC.
 
 ## 2. Directory Structure
 
 - **`main.js`**: The entry point and core logic (Main Process). Manages lifecycle, windows, views, and IPC.
 - **`menu.js`**: Defines the application menu template.
 - **`preload.js`**: Preload script for the internal "Menu" view (side navigation).
-- **`preload-web.js`**: Preload script for external content views (Gmail, Drive, etc.).
+- **`preload-web.js`**: Preload script for Google Workspace content views.
+- **`preload-proton.js`**: Preload script for Proton content views.
 - **`assets/`**: Contains icons and static resources.
-- **`release/`**: Output directory for build artifacts (created during build).
+- **`release/`**: Output directory for build artifacts.
 
 ## 3. Development Commands
 
@@ -59,18 +59,15 @@ This project uses ESLint for linting and Prettier for formatting. A pre-commit h
 
 - **No Automated Test Suite:** There is currently no automated test suite.
 - **Manual Testing is Critical:** All changes must be manually verified.
-- **Single Feature Verification:**
-  - Since there are no unit tests, "running a single test" means manually exercising a specific feature.
-  - **Example:** If modifying the notification logic, start the app, trigger a notification (e.g., send an email to yourself), and verify the badge updates and system notification appears.
 - **Verification Checklist:**
   1. Run `npm start`.
-  2. Verify all services (Gmail, Calendar, Chat, etc.) load without white screens.
-  3. Check developer console (View -> Toggle Developer Tools) for errors.
+  2. Verify all enabled services load without white screens.
+  3. Check developer console for errors.
   4. Verify IPC functionality (switching tabs, updating badges).
-  5. Test keyboard shortcuts (`Cmd/Ctrl+1-6`) for tab switching.
+  5. Test keyboard shortcuts (`Cmd/Ctrl+1-7`) for tab switching.
   6. Verify zoom levels persist per service after restarting the app.
   7. Confirm loading indicators appear when switching to a non-loaded service.
-  8. **Native Notifications:** Create a test event in Calendar and verify the system notification appears. Check `Notification.permission` is 'granted' in console for Google domains.
+  8. **Privacy Isolation:** Verify that logging into Google does not affect Proton sessions and vice-versa.
 
 ## 4. Code Style Guidelines
 
@@ -114,13 +111,12 @@ This project uses ESLint for linting and Prettier for formatting. A pre-commit h
 ## 5. Architectural Patterns & Implementation Details
 
 - **IPC:** Handled via `ipcMain` and `ipcRenderer`. Use `IPC_CHANNELS`.
-- **Notifications:** The application uses browser-native notifications. Permission is granted to Google domains in `main.js`. Calendar uses Service Worker Push API (`showNotification`), while others use standard Web Notifications (`new Notification`).
+- **Notifications:** The application uses browser-native notifications. Permission is granted to specific domains in `main.js`.
 - **Configuration:** Static config in `VIEW_CONFIG`.
-- **Persistence:** `electron-store` used for `services` state and `windowBounds`.
-- **CSP Headers:** The application **intentionally removes** Content-Security-Policy headers (`x-frame-options`, `content-security-policy`) in `_setupSecurity`. This is required to allow embedding Google services in `BrowserView`s. **Do not restore these headers.**
-- **User Agent Spoofing:**
-  - AI Studio requires a modern Chrome User-Agent.
-  - Other views have the "Electron" string removed from their UA to prevent blocking.
+- **Persistence:** `electron-store` used for `services` state, `windowBounds`, and `zoomLevels`.
+- **Session Partitioning:** Proton services run in a dedicated `persist:proton` partition to ensure privacy isolation from Google services.
+- **CSP Headers:** The application **intentionally removes** Content-Security-Policy headers in `_setupSecurity` and `_setupProtonSecurity` to allow embedding.
+- **User Agent Spoofing:** Electron strings are removed from the UA to prevent blocking.
 
 ## 6. Security
 

@@ -1,7 +1,7 @@
 {
   "name": "gsuite-desktop-client",
-  "version": "3.0.1",
-  "description": "A native desktop client for Google Chat, Drive, Calendar and Gmail, built with Electron.",
+  "version": "4.0.0",
+  "description": "A native desktop client for Google Workspace (Gmail, Calendar, Chat, Drive, Tasks) and Proton (Mail, Calendar), built with Electron.",
   "author": "apenlor",
   "homepage": "https://github.com/apenlor/electron-gsuite-client#readme",
   "repository": {
@@ -51,6 +51,7 @@
       "menu.js",
       "preload.js",
       "preload-web.js",
+      "preload-proton.js",
       "menu.html",
       "assets/**/*",
       "node_modules/"
