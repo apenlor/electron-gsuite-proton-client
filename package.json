@@ -1,6 +1,6 @@
 {
   "name": "gsuite-desktop-client",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "A native desktop client for Google Workspace (Gmail, Calendar, Chat, Drive, Tasks) and Proton (Mail, Calendar), built with Electron.",
   "author": "apenlor",
   "homepage": "https://github.com/apenlor/electron-gsuite-client#readme",
