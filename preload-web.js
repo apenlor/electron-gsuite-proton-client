@@ -44,14 +44,42 @@ function getSourceId() {
 }
 
 /**
+ * Updates the Google Calendar icon with today's date.
+ * Uses Google's dynamic logo CDN which includes the day number.
+ * @param {string} sourceId - The service identifier (must be 'calendar')
+ */
+function updateCalendarDynamicIcon(sourceId) {
+  if (sourceId !== "calendar") return;
+
+  const currentDay = new Date().getDate(); // 1-31
+  const dynamicIconUrl = `https://ssl.gstatic.com/calendar/images/dynamiclogo_2020q4/calendar_${currentDay}_2x.png`;
+
+  console.log(`[Calendar] Updating dynamic icon for day: ${currentDay}`);
+
+  ipcRenderer.send(IPC_CHANNELS.UPDATE_FAVICON, {
+    source: sourceId,
+    faviconUrl: dynamicIconUrl,
+  });
+}
+
+/**
  * Monitors DOM mutations to detect favicon changes.
  * Sends updated favicon URLs to main process for display in the sidebar menu.
+ * Calendar uses a dynamic icon strategy and exits early without DOM observation.
  * @param {string} sourceId - The service identifier (gmail, chat, drive, etc.)
  */
 function observeFaviconChanges(sourceId) {
   const headElement = document.querySelector("head");
   if (!headElement) return;
 
+  // Calendar uses dynamic icon with hourly updates, no DOM observation needed
+  if (sourceId === "calendar") {
+    updateCalendarDynamicIcon(sourceId);
+    setInterval(() => updateCalendarDynamicIcon(sourceId), 60 * 60 * 1000);
+    return;
+  }
+
+  // Standard favicon observation for other services
   const checkAndSend = () => {
     const links = Array.from(document.querySelectorAll("link[rel*='icon']"));
     const currentUrl = links.length > 0 ? links[links.length - 1].href : null;
@@ -65,9 +93,7 @@ function observeFaviconChanges(sourceId) {
     }
   };
 
-  // Debounce to prevent excessive IPC calls during rapid DOM changes
   const debouncedCheck = debounce(checkAndSend, 500);
-
   const observer = new MutationObserver(debouncedCheck);
   observer.observe(headElement, {
     childList: true,
