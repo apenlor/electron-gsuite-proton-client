@@ -36,11 +36,15 @@ let lastBadgeCount = -1;
 
 function getSourceId() {
   const href = window.location.href;
+
   if (href.includes("calendar.google.com")) return "calendar";
-  if (href.includes("mail.google.com/chat")) return "chat";
+  if (href.includes("mail.google.com/chat") || href.includes("chat.google.com"))
+    return "chat";
   if (href.includes("drive.google.com")) return "drive";
   if (href.includes("tasks.google.com")) return "tasks";
-  return "gmail";
+  if (href.includes("mail.google.com/mail")) return "gmail";
+
+  return null;
 }
 
 /**
@@ -236,6 +240,8 @@ function showGenericCalendarNotification() {
 
 document.addEventListener("DOMContentLoaded", () => {
   const sourceId = getSourceId();
+  if (!sourceId) return;
+
   observeFaviconChanges(sourceId);
 
   if (sourceId === "gmail") {
